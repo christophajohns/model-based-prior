@@ -1,0 +1,19 @@
+name: model-based-prior
+channels:
+  - default
+  - pytorch
+dependencies:
+  - python=3.12
+  - pytorch
+  - torchvision
+  - pip
+  - tqdm
+  - pip:
+    - opencv-python
+    - pymoo
+    - numpy==1.26
+    - ./colabo/Ax
+    - ./colabo/botorch
+    - pyiqa
+    - python-dotenv
+    - seaborn

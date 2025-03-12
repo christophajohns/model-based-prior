@@ -1,0 +1,9 @@
+opencv-python
+pymoo
+numpy==1.26
+tqdm
+./colabo/Ax
+./colabo/botorch
+pyiqa
+python-dotenv
+seaborn

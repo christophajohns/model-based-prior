@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "modelpriorbo"
+version = "0.1.0"
+description = "Prior injection techniques for Bayesian optimization."
+authors = [
+    { name="Christoph A. Johns", email="cajohns@cs.au.dk" }
+]
+dependencies = ["opencv-python", "ax-platform", "pymoo", "numpy==1.26", "tqdm", "pyiqa", "python-dotenv", "seaborn"]
+
+[tool.setuptools]
+packages = ["modelpriorbo"]
