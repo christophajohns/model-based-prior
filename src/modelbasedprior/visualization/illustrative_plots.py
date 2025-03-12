@@ -488,17 +488,17 @@ def initial_samples_plot() -> Tuple[plt.Figure, plt.Axes]:
 
 def main():
     """Create the illustrative plots for the paper."""
-    plots_dir = os.getenv('PLOTS_DIR')
+    # plots_dir = os.getenv('PLOTS_DIR')
 
     for plot_func, filename in [
-        # (sphere_plot, 'sphere.png'),
-        # (shekel_plot, 'shekel.png'),
-        # (scatter_quality_plot, 'scatter_quality.png'),
-        # (prior_temperature_plot, 'prior_temperature.png'),
+        (sphere_plot, 'sphere.png'),
+        (shekel_plot, 'shekel.png'),
+        (scatter_quality_plot, 'scatter_quality.png'),
+        (prior_temperature_plot, 'prior_temperature.png'),
         (initial_samples_plot, 'initial_samples.png'),
     ]:
         fig, ax = plot_func()
-        fig.savefig(os.path.join(plots_dir, filename), dpi=300, bbox_inches='tight')
+        # fig.savefig(os.path.join(plots_dir, filename), dpi=300, bbox_inches='tight')
         fig.tight_layout()
 
     plt.show()

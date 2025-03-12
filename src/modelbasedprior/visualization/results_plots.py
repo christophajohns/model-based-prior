@@ -4,12 +4,8 @@ from typing import Tuple, List, Literal
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
-import os
-from dotenv import load_dotenv
 from modelbasedprior.benchmarking.database import Database
 from modelbasedprior.objectives.sphere import Sphere
-
-load_dotenv()
 
 COLORS = [
     "blue",
@@ -486,86 +482,6 @@ def regret_mr_layout_quality_plot(db: Database) -> Tuple[plt.Figure, plt.Axes]:
 
     return fig, ax
 
-# def regret_by_technique_and_temperature(
-#         db: Database,
-#         optimization_type: str,
-#         objective_type: str,
-#         num_initial_samples: int = 4,
-#         max_iterations_to_plot: int = 40,
-#         **kwargs,
-#     ) -> Tuple[plt.Figure, plt.Axes]:
-#     """Create an illustration of the regret MR layout quality plot."""
-#     fig, axs = plt.subplots(1, 4, figsize=(20, 4))
-
-#     injection_method_comparison_ax, prior_sampling_ax, pibo_ax, colabo_ax = axs
-
-#     # Injection method comparison
-#     df_bo = get_regret_data(
-#         db=db,
-#         optimization_type=optimization_type,
-#         objective_type=objective_type,
-#         prior_types_injection_method_and_descriptions=[
-#             ('None', 'None', 'MC-LogEI'),
-#             ('Biased', 'piBO', r'$\pi$BO-MC-LogEI'),
-#             ('Biased', 'ColaBO', 'ColaBO-MC-LogEI'),
-#         ],
-#         **kwargs
-#     )
-#     df_prior_sampling = get_regret_data(
-#         db=db,
-#         optimization_type='PriorSampling',
-#         objective_type=objective_type,
-#         prior_types_injection_method_and_descriptions=[
-#             ('Biased', 'None', 'Prior Sampling'),
-#         ],
-#         **kwargs
-#     )
-#     df_injection = pd.concat([df_bo, df_prior_sampling])
-
-#     # Drop all iterations after 40
-#     df_injection = df_injection[df_injection['iteration'] <= max_iterations_to_plot]
-
-#     plot_regret(injection_method_comparison_ax, df_injection, num_initial_samples)
-#     injection_method_comparison_ax.set_title(f'{optimization_type} {objective_type}')
-
-#     # Temperature comparison
-#     for ax, prior_injection_method in zip([prior_sampling_ax, pibo_ax, colabo_ax], ['PriorSampling', 'piBO', 'ColaBO']):
-        
-#         # Hotfix to make PriorSampling plotting work
-#         original_prior_injection_method = prior_injection_method
-#         original_optimization_type = optimization_type
-#         if prior_injection_method == 'PriorSampling':
-#             optimization_type = 'PriorSampling'
-#             prior_injection_method = 'None'
-
-#         df = get_regret_data(
-#             db=db,
-#             optimization_type=optimization_type,
-#             objective_type=objective_type,
-#             prior_types_injection_method_and_descriptions=[
-#                 ('BiasedMoreCertain', prior_injection_method, r'$T = 0.01$'),
-#                 ('BiasedCertain', prior_injection_method, r'$T = 0.1$'),
-#                 ('Biased', prior_injection_method, r'$T = 1.0$'),
-#                 ('BiasedUncertain', prior_injection_method, r'$T = 10.0$'),
-#                 ('BiasedMoreUncertain', prior_injection_method, r'$T = 100.0$'),
-#             ],
-#             **kwargs
-#         )
-
-#         optimization_type = original_optimization_type
-
-#         # Drop all iterations after 40
-#         df = df[df['iteration'] <= max_iterations_to_plot]
-
-#         plot_regret(ax, df, num_initial_samples)
-#         ax.set_title(f'{original_prior_injection_method if original_prior_injection_method != "piBO" else r"$\pi$BO"}')
-
-#     # Remove y-axis label from all but first subfigure
-#     for ax in axs[1:]:
-#         ax.set_ylabel(None)
-
-#     return fig, axs
-
 def regret_by_technique_and_temperature(
         df: pd.DataFrame,
         optimization_type: str,
@@ -677,8 +593,13 @@ def get_only_max_paths_for_colabo_df(
     )
 
 def main():
-    db = Database(os.getenv('DATA_DIR') + 'experiments.db')
-    plots_dir = os.getenv('PLOTS_DIR')
+    import os
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    db = Database(os.path.join(os.getenv('DATA_DIR'), 'experiments.db'))
+    # plots_dir = os.getenv('PLOTS_DIR')
 
     for plot_func, filename in [
         (regret_sphere_plot, 'regret_sphere.png'),
@@ -689,7 +610,7 @@ def main():
     ]:
         fig, ax = plot_func(db)
         fig.tight_layout()
-        fig.savefig(os.path.join(plots_dir, filename), dpi=300)
+        # fig.savefig(os.path.join(plots_dir, filename), dpi=300)
 
     for optimization_type, objective_type in [
         ('BO', 'Sphere'),
@@ -709,10 +630,10 @@ def main():
             df = pd.concat([df, df_colabo])
         fig, axs = regret_by_technique_and_temperature(df, optimization_type, objective_type)
         fig.tight_layout()
-        fig.savefig(os.path.join(
-            plots_dir,
-            f'regret_{optimization_type}_{objective_type}.png'
-        ), dpi=300)
+        # fig.savefig(os.path.join(
+        #     plots_dir,
+        #     f'regret_{optimization_type}_{objective_type}.png'
+        # ), dpi=300)
     
     plt.show()
 

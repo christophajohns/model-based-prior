@@ -99,9 +99,9 @@ MINIMAL_NOISE_STD = 0.001
 SEED: int = 0
 DATA_DIR: str = os.getenv("DATA_DIR") if not SMOKE_TEST else temporary_data_dir.name
 DB_NAME: str = "experiments.db"
-RUN_BENCHMARK: bool = False
+RUN_BENCHMARK: bool = True
 VISUALIZE_RUNS: bool = False
-EXPERIMENT_TO_PLOT_ID: int | None = 1224
+EXPERIMENT_TO_PLOT_ID: int | None = None
 
 logger = setup_logger(level=logging.INFO)  # or logging.DEBUG for more detailed output or logging.WARNING for less output
 
@@ -215,7 +215,7 @@ configs = [
         # sphere_noisy_configs,
         # sphere_many_initial_samples_configs,
         # sphere_many_iterations_configs,
-        # shekel_configs,
+        shekel_configs,
         shekel_many_paths_configs,
         # image_similarity_configs,
         # scatterplot_quality_configs,
