@@ -10,6 +10,11 @@ authors = [
     { name="Christoph A. Johns", email="cajohns@cs.au.dk" }
 ]
 dependencies = ["opencv-python", "ax-platform", "pymoo", "numpy==1.26", "tqdm", "pyiqa", "python-dotenv", "seaborn"]
+readme = "README.md"
+license = {file = "LICENSE"}
 
 [tool.setuptools]
-packages = ["modelbasedprior"]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
