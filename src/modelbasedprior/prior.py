@@ -33,11 +33,13 @@ class ModelBasedPrior(UserPriorLocation):
         # to cover the entire transformation range
         y_pred_samples_normalized = 10 * y_pred_samples_normalized - 5
         self.logsumexp = torch.logsumexp(y_pred_samples_normalized / temperature, dim=0)
+        self.volume = torch.exp(torch.sum(torch.log(torch.abs(self.bounds[1] - self.bounds[0]) + 1e-10)))  # numerically stable hypercube volume
+        self.approximate_log_integral = self.logsumexp + torch.log(self.volume) - torch.log(torch.tensor(self.n_samples))
 
         self.rng = torch.Generator(device='cpu').manual_seed(self.seed)
 
         self.samples = x_samples
-        self.sample_log_probs = y_pred_samples_normalized / temperature - self.logsumexp
+        self.sample_log_probs = y_pred_samples_normalized / temperature - self.approximate_log_integral
         self.sample_probs = torch.exp(self.sample_log_probs)
 
     def evaluate(self, X: torch.Tensor) -> torch.Tensor:
@@ -56,7 +58,7 @@ class ModelBasedPrior(UserPriorLocation):
         if self.minimize:
             y_pred_normalized = 1 - y_pred_normalized
         y_pred_normalized = 10 * y_pred_normalized - 5
-        return (y_pred_normalized / self.temperature - self.logsumexp).reshape(-1, 1)
+        return (y_pred_normalized / self.temperature - self.approximate_log_integral).reshape(-1, 1)
 
     def sample(self, num_samples: int = 1, *args, **kwargs):
         """Retrieves samples in the actual, true search space
@@ -68,7 +70,7 @@ class ModelBasedPrior(UserPriorLocation):
         number_of_generated_samples = max(kwargs.get("number_of_generated_samples", self.samples.size(0)), num_samples)
         samples = unnormalize(torch.rand(number_of_generated_samples, self.dim), self.bounds)
         sample_log_probs = self.evaluate(normalize(samples, self.bounds)).squeeze()
-        sample_log_probs_normalized = sample_log_probs - torch.logsumexp(sample_log_probs, dim=0)
+        sample_log_probs_normalized = sample_log_probs - (torch.logsumexp(sample_log_probs, dim=0) + torch.log(self.volume) - torch.log(torch.tensor(number_of_generated_samples)))
         sample_probs_normalized = torch.exp(sample_log_probs_normalized)
         return samples[torch.multinomial(sample_probs_normalized, num_samples, generator=self.rng)]
     
@@ -105,3 +107,13 @@ def get_model_based_prior(
         *prior_args,
         **prior_kwargs,
     )
+
+if __name__ == "__main__":
+    from modelbasedprior.objectives.sphere import Sphere
+
+    objective = Sphere(dim=2, negate=True)
+    global_optima = objective.optimizers  # here: objective.bounds.T.mean(dim=-1) => [0, 0]
+    offset = 0.1 * (objective.bounds[1,:] - objective.bounds[0,:])
+    parameter_default = global_optima[0] + offset
+    # user_prior = DefaultPrior(bounds=objective.bounds, parameter_defaults=parameter_default, confidence=0.25)
+    user_prior = ModelBasedPrior(bounds=objective.bounds, predict_func=lambda x: objective(x - 0.5), temperature=0.01, minimize=False)
