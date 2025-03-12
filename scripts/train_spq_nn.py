@@ -6,7 +6,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 from botorch.utils.transforms import unnormalize
 import seaborn as sns
+from dotenv import load_dotenv
+import os
 from modelbasedprior.objectives.scatterplot_quality import ScatterPlotQualityLoss, ScatterPlotQualityLossRegressor
+
+load_dotenv()
+
+PRETRAINED_MODELS_DIR = os.getenv("PRETRAINED_MODELS_DIR")
     
 def get_loss_function() -> nn.Module:
     """
@@ -161,7 +167,7 @@ def train_model(model: nn.Module, train_loader: DataLoader, val_loader: DataLoad
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             patience_counter = 0
-            torch.save(model.state_dict(), "best_model.pth")
+            torch.save(model.state_dict(), os.path.join(os.getenv('PRETRAINED_MODELS_DIR'), 'best_model.pth'))
         else:
             patience_counter += 1
 
@@ -372,7 +378,7 @@ def main(X: torch.Tensor, y: torch.Tensor, bounds: list[tuple[float, float]]):
 
     # Step 9: Save the Best Model
     print("Saving the best model...")
-    torch.save(model.state_dict(), "best_model.pth")
+    torch.save(model.state_dict(), os.path.join(os.getenv('PRETRAINED_MODELS_DIR'), 'best_model.pth'))
     print("Model saved to 'best_model.pth'")
 
 if __name__ == "__main__":
@@ -402,7 +408,7 @@ if __name__ == "__main__":
 
     print("Loading the best model...")
     model = build_model(input_dim=X.shape[1], hidden_dims=[64, 64, 64])
-    model.load_state_dict(torch.load("best_model.pth"))
+    model.load_state_dict(torch.load(os.path.join(os.getenv('PRETRAINED_MODELS_DIR'), 'best_model.pth')))
 
     print("Plotting predictions vs actual values...")
     plot_predictions_vs_actuals(model, test_loader)
