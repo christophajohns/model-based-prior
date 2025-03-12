@@ -3,7 +3,7 @@ requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "modelpriorbo"
+name = "modelbasedprior"
 version = "0.1.0"
 description = "Prior injection techniques for Bayesian optimization."
 authors = [
@@ -12,4 +12,4 @@ authors = [
 dependencies = ["opencv-python", "ax-platform", "pymoo", "numpy==1.26", "tqdm", "pyiqa", "python-dotenv", "seaborn"]
 
 [tool.setuptools]
-packages = ["modelpriorbo"]
+packages = ["modelbasedprior"]
