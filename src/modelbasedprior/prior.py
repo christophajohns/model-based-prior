@@ -4,7 +4,16 @@ from botorch.test_functions.synthetic import SyntheticTestFunction
 from typing import Callable
 
 class ModelBasedPrior(UserPriorLocation):
-    def __init__(self, *args, minimize = True, predict_func = lambda x: torch.tensor([0.0] * x.size()[0]), n_samples = 500, temperature = 1.0, **kwargs):
+    def __init__(
+            self,
+            *args,
+            minimize = True,
+            predict_func = lambda x: torch.tensor([0.0] * x.size()[0]),
+            n_samples = 500,
+            temperature = 1.0,
+            normalize_predict_func: Callable = None,
+            **kwargs
+        ):
         super().__init__(*args, **kwargs)
         self.predict_using_model = predict_func
         self.n_samples = n_samples
@@ -21,9 +30,10 @@ class ModelBasedPrior(UserPriorLocation):
 
         # Normalize the function values into the range [0, 1] (1 = max, 0 = min)
         # to avoid overflow (and underflow) when computing the exponential
-        self.min_y_pred_samples = torch.min(y_pred_samples)
-        self.max_y_pred_samples = torch.max(y_pred_samples)
-        y_pred_samples_normalized = (y_pred_samples - self.min_y_pred_samples) / (self.max_y_pred_samples - self.min_y_pred_samples)
+        if normalize_predict_func is None:
+            normalize_predict_func = lambda x: normalize(x, (torch.min(y_pred_samples), torch.max(y_pred_samples)))
+        self.normalize_predict_func = normalize_predict_func
+        y_pred_samples_normalized = self.normalize_predict_func(y_pred_samples)
 
         # Compute the Boltzmann distribution
         if self.minimize:
@@ -54,7 +64,7 @@ class ModelBasedPrior(UserPriorLocation):
         """
         X_unnormalized = unnormalize(X, self.bounds)
         y_pred = self.predict_using_model(X_unnormalized)
-        y_pred_normalized = (y_pred - self.min_y_pred_samples) / (self.max_y_pred_samples - self.min_y_pred_samples)
+        y_pred_normalized = self.normalize_predict_func(y_pred)
         if self.minimize:
             y_pred_normalized = 1 - y_pred_normalized
         y_pred_normalized = 10 * y_pred_normalized - 5
@@ -109,11 +119,26 @@ def get_model_based_prior(
     )
 
 if __name__ == "__main__":
+    import logging
     from modelbasedprior.objectives.sphere import Sphere
+    from modelbasedprior.logger import setup_logger
+    from modelbasedprior.optimization.bo import maximize
 
     objective = Sphere(dim=2, negate=True)
     global_optima = objective.optimizers  # here: objective.bounds.T.mean(dim=-1) => [0, 0]
     offset = 0.1 * (objective.bounds[1,:] - objective.bounds[0,:])
     parameter_default = global_optima[0] + offset
     # user_prior = DefaultPrior(bounds=objective.bounds, parameter_defaults=parameter_default, confidence=0.25)
-    user_prior = ModelBasedPrior(bounds=objective.bounds, predict_func=lambda x: objective(x - 0.5), temperature=0.01, minimize=False)
+    predict_func = lambda x: objective(x - 0.5)
+    # normalize_predict_func = lambda x: normalize(x, (predict_func(objective.bounds[0,:]), objective.optimal_value))
+    user_prior = ModelBasedPrior(
+        bounds=objective.bounds,
+        predict_func=predict_func,
+        temperature=0.01,
+        minimize=False,
+        # normalize_predict_func=normalize_predict_func,  # may cause issues with equalities under floats that lead to negative probabilities
+    )
+
+    logger = setup_logger(level=logging.INFO)  # or logging.DEBUG for more detailed output or logging.WARNING for less output
+
+    result_X, result_y, model = maximize(objective, user_prior=user_prior, num_trials=5, logger=logger)
