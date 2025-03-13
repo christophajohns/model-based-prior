@@ -1,0 +1,3 @@
+[submodule "colabo"]
+	path = colabo
+	url = https://github.com/christophajohns/colabo.git
