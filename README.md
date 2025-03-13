@@ -8,7 +8,7 @@ This project provides a Python implementation of a prior injection technique for
 
 To install the project, follow these steps:
 
-1. Clone the repository: `git clone christophajohns/model-based-prior`
+1. Clone the repository (incl. the `colabo` submodule): `git clone --recursive https://github.com/christophajohns/model-based-prior.git`
 2. Navigate to the project directory: `cd model-based-prior`
 3. Create a virtual environment from `environment.yml`: `conda env create -f environment.yml`
 4. Activate the virtual environment: `conda activate model-based-prior`
@@ -24,6 +24,12 @@ And then install the local package:
 
 ```bash
 pip install -e .
+```
+
+If `colabo` receives updates, pull them using:
+
+```bash
+git submodule update --remote
 ```
 
 ## Usage
