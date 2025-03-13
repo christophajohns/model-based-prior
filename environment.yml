@@ -17,3 +17,4 @@ dependencies:
     - pyiqa
     - python-dotenv
     - seaborn
+    - dash

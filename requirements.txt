@@ -7,3 +7,4 @@ tqdm
 pyiqa
 python-dotenv
 seaborn
+dash
