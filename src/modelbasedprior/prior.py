@@ -130,13 +130,13 @@ if __name__ == "__main__":
     parameter_default = global_optima[0] + offset
     # user_prior = DefaultPrior(bounds=objective.bounds, parameter_defaults=parameter_default, confidence=0.25)
     predict_func = lambda x: objective(x - 0.5)
-    # normalize_predict_func = lambda x: normalize(x, (predict_func(objective.bounds[0,:]), objective.optimal_value))
+    normalize_predict_func = lambda x: torch.clamp(normalize(x, (predict_func(objective.bounds[0,:]), objective.optimal_value)), min=0.0, max=1.0)  # clamping due to numerical issues near the boundaries
     user_prior = ModelBasedPrior(
         bounds=objective.bounds,
         predict_func=predict_func,
         temperature=0.01,
         minimize=False,
-        # normalize_predict_func=normalize_predict_func,  # may cause issues with equalities under floats that lead to negative probabilities
+        normalize_predict_func=normalize_predict_func,
     )
 
     logger = setup_logger(level=logging.INFO)  # or logging.DEBUG for more detailed output or logging.WARNING for less output
