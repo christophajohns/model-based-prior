@@ -13,6 +13,8 @@ To install the project, follow these steps:
 3. Create a virtual environment from `environment.yml`: `conda env create -f environment.yml`
 4. Activate the virtual environment: `conda activate model-based-prior`
 5. Install the local package: `pip install -e .`
+6. Copy the `.env.example` file into a new file `.env`
+7. Set the variables in `.env`
 
 You can also install the necessary packages using `pip`:
 
@@ -39,6 +41,44 @@ To try out the prior-guided Bayesian optimization, run the following command:
 ```bash
 python main.py
 ```
+
+## Replication
+
+You can replicate the experiments and figures used in our paper.
+
+### Run the experiments
+
+To replicate the experiments from our paper, run the following command:
+
+```bash
+python scripts/synthetic_evaluation.py
+```
+
+Alternatively, to brute force run the script, use:
+
+```bash
+. ./scripts/run_experiment.sh
+```
+
+This will create and populate an SQLite database with the optimization results at `DATA_DIR/experiments.db`.
+
+**Note:** You will need to download the an image from the AVA dataset (ID: 43405) and make it available at `AVA_FLOWERS_DIR/43405.jpg` to use the `ImageSimilarity` objective. Since this is image is protected by copyright, we do not include it here.
+
+**Note:** Due to the way that randomness works in BoTorch, the results can differ from those reported in the paper.
+
+**Note:** You may want to modify `scripts/synthetic_evaluation.py` to change which experiments are run and how.
+
+**Note:** The `scripts/synthetic_evaluation.py` script has a variable `SMOKE_TEST` that can be set to `SMOKE_TEST=TRUE` to run a smaller test of the script's functionality and quickly catch issues.
+
+### Create the plots
+
+To create the plots used in the paper, you can run:
+
+```bash
+python scripts/create_plots.py
+```
+
+This will pull data from the previously created database and visualize it using matplotlib.
 
 ## Contributing
 
