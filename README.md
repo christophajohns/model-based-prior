@@ -62,7 +62,7 @@ Alternatively, to brute force run the script, use:
 
 This will create and populate an SQLite database with the optimization results at `DATA_DIR/experiments.db`.
 
-**Note:** You will need to download the an image from the AVA dataset (ID: 43405) and make it available at `AVA_FLOWERS_DIR/43405.jpg` to use the `ImageSimilarity` objective. Since this is image is protected by copyright, we do not include it here.
+**Note:** You will need to download the an image from the [AVA dataset](https://www.kaggle.com/datasets/nicolacarrassi/ava-aesthetic-visual-assessment) (ID: 43405) and make it available at `AVA_FLOWERS_DIR/43405.jpg` to use the `ImageSimilarity` objective. Since this is image is protected by copyright, we do not include it here.
 
 **Note:** Due to the way that randomness works in BoTorch, the results can differ from those reported in the paper.
 
