@@ -167,7 +167,7 @@ def train_model(model: nn.Module, train_loader: DataLoader, val_loader: DataLoad
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             patience_counter = 0
-            torch.save(model.state_dict(), os.path.join(os.getenv('PRETRAINED_MODELS_DIR'), 'best_model.pth'))
+            torch.save(model.state_dict(), os.path.join(os.getenv('PRETRAINED_MODELS_DIR'), 'biased_scatterplotquality_model.pth'))
         else:
             patience_counter += 1
 
@@ -378,8 +378,8 @@ def main(X: torch.Tensor, y: torch.Tensor, bounds: list[tuple[float, float]]):
 
     # Step 9: Save the Best Model
     print("Saving the best model...")
-    torch.save(model.state_dict(), os.path.join(os.getenv('PRETRAINED_MODELS_DIR'), 'best_model.pth'))
-    print("Model saved to 'best_model.pth'")
+    torch.save(model.state_dict(), os.path.join(os.getenv('PRETRAINED_MODELS_DIR'), 'biased_scatterplotquality_model.pth'))
+    print("Model saved to 'biased_scatterplotquality_model.pth'")
 
 if __name__ == "__main__":
     # Seed for reproducibility
@@ -408,7 +408,7 @@ if __name__ == "__main__":
 
     print("Loading the best model...")
     model = build_model(input_dim=X.shape[1], hidden_dims=[64, 64, 64])
-    model.load_state_dict(torch.load(os.path.join(os.getenv('PRETRAINED_MODELS_DIR'), 'best_model.pth')))
+    model.load_state_dict(torch.load(os.path.join(os.getenv('PRETRAINED_MODELS_DIR'), 'biased_scatterplotquality_model.pth')))
 
     print("Plotting predictions vs actual values...")
     plot_predictions_vs_actuals(model, test_loader)
