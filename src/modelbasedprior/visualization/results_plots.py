@@ -143,16 +143,23 @@ def get_regret_data(
 
     return pd.DataFrame(data)
 
-def regret_sphere_plot(db: Database) -> Tuple[plt.Figure, plt.Axes]:
+def regret_sphere_plot(
+        db: Database,
+        prior_types_injection_method_and_descriptions: List[Tuple[str, str, str]] = [
+            ('None', 'None', 'MC-LogEI'),
+            ('Biased', 'ColaBO', 'ColaBO-MC-LogEI'),
+            ('Biased', 'piBO', r'$\pi$BO-MC-LogEI'),
+        ],
+        prior_sampling_injection_methods_and_descriptions: List[Tuple[str, str, str]] = [
+            ('Biased', 'None', 'Prior Sampling'),
+        ],
+        optimization_and_objective_types: List[Tuple[str, str, str]] = [
+            ('BO', 'Sphere', 'Sphere BO'),
+            ('BO', 'SphereNoisy', 'Sphere BO (Noisy)'),
+            ('PBO', 'Sphere', 'Sphere PBO'),
+        ],
+    ) -> Tuple[plt.Figure, plt.Axes]:
     """Create an illustration of the regret sphere plot."""
-    prior_types_injection_method_and_descriptions = [
-        ('None', 'None', 'MC-LogEI'),
-        ('Biased', 'ColaBO', 'ColaBO-MC-LogEI'),
-        ('Biased', 'piBO', r'$\pi$BO-MC-LogEI'),
-    ]
-    prior_sampling_injection_methods_and_descriptions = [
-        ('Biased', 'None', 'Prior Sampling'),
-    ]
     # prior_types_injection_method_and_descriptions = [
     #     ('None', 'None', 'Uniform prior'),
     #     # ('BiasedMoreCertain', 'ColaBO', r'ColaBO, $\Delta = (-0.5,-0.5)^T, T = 0.01$'),
@@ -175,11 +182,7 @@ def regret_sphere_plot(db: Database) -> Tuple[plt.Figure, plt.Axes]:
     # ]
 
     dfs = []
-    for optimization_type, objective_type in [
-        ('BO', 'Sphere'),
-        ('BO', 'SphereNoisy'),
-        ('PBO', 'Sphere'),
-    ]:
+    for optimization_type, objective_type, _ in optimization_and_objective_types:
         df_bayesian = get_regret_data(
             db=db,
             optimization_type=optimization_type,
@@ -203,9 +206,11 @@ def regret_sphere_plot(db: Database) -> Tuple[plt.Figure, plt.Axes]:
 
     # Create a figure
     fig, axes = plt.subplots(1, len(dfs), figsize=(5 * len(dfs), 4), sharex=True)
+    if len(dfs) == 1: axes = [axes]  # Make sure that axes is iterable, even if only plotting a single optimization and objective combination
 
     # Plot the regret for each bias level
-    for ax, df, title in zip(axes, dfs, ['Sphere BO', 'Sphere BO (Noisy)', 'Sphere PBO']):
+    titles = [title for _, _, title in optimization_and_objective_types]
+    for ax, df, title in zip(axes, dfs, titles):
         plot_regret(ax, df, num_initial_samples)
         ax.set_title(title)
 
@@ -291,18 +296,20 @@ def regret_shekel_plot(db: Database) -> Tuple[plt.Figure, plt.Axes]:
 
     return fig, ax
 
-def regret_image_similarity_plot(db: Database) -> Tuple[plt.Figure, plt.Axes]:
+def regret_image_similarity_plot(
+        db: Database,
+        prior_types_injection_method_and_descriptions: List[Tuple[str, str, str]] = [
+            ('None', 'None', 'MC-LogEI'),
+            ('Biased', 'ColaBO', 'ColaBO-MC-LogEI'),
+            ('Biased', 'piBO', r'$\pi$BO-MC-LogEI'),
+        ],
+        prior_sampling_injection_methods_and_descriptions: List[Tuple[str, str, str]] = [
+            ('Biased', 'None', 'Prior Sampling'),
+        ],
+        optimization_types: List[str] = ['BO', 'PBO'],
+    ) -> Tuple[plt.Figure, plt.Axes]:
     """Create an illustration of the regret image similarity plot."""
     num_initial_samples = 4
-    optimization_types = ['BO', 'PBO']
-    prior_types_injection_method_and_descriptions = [
-        ('None', 'None', 'MC-LogEI'),
-        ('Biased', 'ColaBO', 'ColaBO-MC-LogEI'),
-        ('Biased', 'piBO', r'$\pi$BO-MC-LogEI'),
-    ]
-    prior_sampling_injection_methods_and_descriptions = [
-        ('Biased', 'None', 'Prior Sampling'),
-    ]
     # prior_types_injection_method_and_descriptions = [
     #     ('None', 'None', 'Uniform prior'),
     #     # ('Unbiased', 'ColaBO', 'ColaBO, Unbiased'),
@@ -339,6 +346,7 @@ def regret_image_similarity_plot(db: Database) -> Tuple[plt.Figure, plt.Axes]:
     #     # ('BiasedMoreUncertain', 'None', r'Prior Sampling, Biased, $T = 100.0$'),
     # ]
     fig, ax = plt.subplots(1, len(optimization_types), figsize=(5 * len(optimization_types), 4))
+    if len(optimization_types) == 1: ax = [ax]  # Make sure that ax is iterable, even if only plotting a single optimization type
 
     for i, optimization_type in enumerate(optimization_types):
         df_bo = get_regret_data(
