@@ -43,3 +43,6 @@ if __name__ == "__main__":
     sphere = Sphere(dim=3)
     X = torch.rand(2, 3)
     print(sphere(X))
+
+    qX = torch.rand(4, 2, 3)
+    print(sphere(qX))
