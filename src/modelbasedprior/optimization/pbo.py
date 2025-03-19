@@ -39,25 +39,63 @@ def init_and_fit_model(X: torch.Tensor, comparisons: torch.Tensor, bounds: torch
     fit_gpytorch_mll(mll)
     return model
 
-def map_to_existing(X: torch.Tensor, points: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Map points to their indices in X if they exist, or append them to X and return new indices."""
+def map_to_existing(X: torch.Tensor, points: torch.Tensor, tolerance: float = 1e-6, 
+                    match_strategy: str = "first") -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Map points to their indices in X if they exist, or append them to X and return new indices.
+    
+    Args:
+        X: Tensor of shape (n, d) containing previously evaluated points
+        points: Tensor of shape (m, d) containing points to map
+        tolerance: Floating point tolerance for equality comparison
+        match_strategy: Strategy for handling multiple matches:
+            - "first": Use the first matching index
+            - "closest": Use the index of the closest point
+            - "error": Raise an error if multiple matches are found
+        
+    Returns:
+        Tuple containing:
+            - Updated X tensor with new points appended (if any)
+            - Tensor of indices mapping each point in 'points' to its position in the updated X
+    
+    Raises:
+        ValueError: If match_strategy is "error" and multiple matches are found
+    """
+    # Initialize indices list to store results
     indices = []
+    new_X = X.clone()  # Create a copy to avoid modifying the input tensor
+    
     for point in points:
-
-        # Check if the point already exists in X (within a small tolerance to handle floating-point precision)
-        diff = (X - point).abs().sum(dim=1)
-        existing_idx = torch.where(diff < 1e-6)[0]  # Returns the index if the point is found
+        # Compute L1 distance between point and all points in new_X
+        diff = (new_X - point).abs().sum(dim=1)
+        
+        # Find indices where the difference is less than tolerance
+        existing_idx = torch.where(diff < tolerance)[0]
         
         if len(existing_idx) > 0:
-            # Point already exists in X, use the existing index
-            indices.append(existing_idx.item())
-
+            # A point very close to this one already exists in X
+            if len(existing_idx) == 1 or match_strategy == "first":
+                # Only one match or using first match strategy
+                indices.append(existing_idx[0].item())
+            elif match_strategy == "closest":
+                # Find the closest match
+                closest_idx = torch.argmin(diff[existing_idx]).item()
+                indices.append(existing_idx[closest_idx].item())
+            elif match_strategy == "error":
+                # Raise error for multiple matches
+                raise ValueError(f"Multiple matches found for point {point}. "
+                                 f"Matching indices: {existing_idx.tolist()}")
+            else:
+                raise ValueError(f"Unknown match strategy: {match_strategy}")
         else:
-            # Point is new, append it to X and use the new index
-            X = torch.cat([X, point.unsqueeze(0)], dim=0)
-            indices.append(X.shape[0] - 1)  # New index is the last position
-
-    return X, torch.tensor(indices).long()
+            # Point is new, append it to new_X
+            new_X = torch.cat([new_X, point.unsqueeze(0)], dim=0)
+            indices.append(len(new_X) - 1)  # Index is the last position
+    
+    # Convert indices list to tensor
+    indices_tensor = torch.tensor(indices, dtype=torch.long)
+    
+    return new_X, indices_tensor
 
 def make_new_data(X: torch.Tensor, next_X: torch.Tensor, comparisons: torch.Tensor, objective: SyntheticTestFunction):
     """Generate new pairwise comparisons and update the data."""
@@ -212,14 +250,15 @@ if __name__ == "__main__":
     from modelbasedprior.prior import ModelBasedPrior
     from modelbasedprior.objectives.sphere import Sphere
     from modelbasedprior.logger import setup_logger
+    from modelbasedprior.benchmarking.runner import pibo_factory
 
     objective = Sphere(dim=2, negate=True)
-    global_optima = objective.optimizers  # here: objective.bounds.T.mean(dim=-1) => [0, 0]
-    offset = 0.1 * (objective.bounds[1,:] - objective.bounds[0,:])
-    parameter_default = global_optima[0] + offset
+    # global_optima = objective.optimizers  # here: objective.bounds.T.mean(dim=-1) => [0, 0]
+    # offset = 0.1 * (objective.bounds[1,:] - objective.bounds[0,:])
+    # parameter_default = global_optima[0] + offset
     # user_prior = DefaultPrior(bounds=objective.bounds, parameter_defaults=parameter_default, confidence=0.25)
-    user_prior = ModelBasedPrior(bounds=objective.bounds, predict_func=lambda x: objective(x - 0.5), temperature=0.01, minimize=False)
+    user_prior = ModelBasedPrior(bounds=objective.bounds, predict_func=lambda x: objective(x - 0.5), temperature=1.0, minimize=False)
     
     logger = setup_logger(level=logging.DEBUG)  # or logging.DEBUG for more detailed output or logging.WARNING for less output
 
-    result_X, result_comparisons, result_best_X, model = maximize(objective, user_prior=user_prior, num_initial_samples=4, num_trials=5, logger=logger)
+    result_X, result_comparisons, result_best_X, model = maximize(objective, user_prior=user_prior, num_initial_samples=4, num_trials=5, logger=logger, acq_func_factory=pibo_factory) #, include_current_best=False)  # Causes issues with PriorAcquisitionFunction.forward() where X_normalized is now a pair
