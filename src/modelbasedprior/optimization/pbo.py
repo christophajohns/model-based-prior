@@ -261,4 +261,4 @@ if __name__ == "__main__":
     
     logger = setup_logger(level=logging.DEBUG)  # or logging.DEBUG for more detailed output or logging.WARNING for less output
 
-    result_X, result_comparisons, result_best_X, model = maximize(objective, user_prior=user_prior, num_initial_samples=4, num_trials=5, logger=logger, acq_func_factory=pibo_factory) #, include_current_best=False)  # Causes issues with PriorAcquisitionFunction.forward() where X_normalized is now a pair
+    result_X, result_comparisons, result_best_X, model = maximize(objective, user_prior=user_prior, num_initial_samples=4, num_trials=5, logger=logger, acq_func_factory=pibo_factory, include_current_best=False)
