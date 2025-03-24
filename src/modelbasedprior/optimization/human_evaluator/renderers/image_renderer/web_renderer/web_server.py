@@ -18,11 +18,34 @@ HTML_PAGE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Rate the Image</title>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        document.querySelector('form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const rating = document.getElementById('rating').value;
+            
+            fetch('/submit', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `rating=${rating}`
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    // Reload the page to get the next image
+                    window.location.reload();
+                }
+            });
+        });
+    });
+    </script>
 </head>
 <body>
     <h2>Rate the Image</h2>
     <img src="/image" alt="Generated Image" width="256"><br><br>
-    <form action="/submit" method="post">
+    <form method="post">
         <label for="rating">Enter rating (0-10):</label>
         <input type="number" id="rating" name="rating" min="0" max="10" step="0.1" required>
         <button type="submit">Submit</button>
