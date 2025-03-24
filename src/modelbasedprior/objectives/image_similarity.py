@@ -90,7 +90,16 @@ class ImageSimilarityLoss(SyntheticTestFunction):
         return image / 255.0
     
 if __name__ == "__main__":
+    # import os
+    # from dotenv import load_dotenv
+    # from torchvision.io import read_image
+    # from torchvision.transforms.functional import resize
+
+    # load_dotenv()
+
     original_image = (torch.rand(3, 16, 16) * 255).floor().to(torch.uint8)
+    # ava_flowers_dir = os.getenv("AVA_FLOWERS_DIR")
+    # original_image = resize(read_image(os.path.join(ava_flowers_dir, '43405.jpg')), 64)  # Downsample
     image_similarity = ImageSimilarityLoss(original_image=original_image)
     X_rand = unnormalize(torch.rand(2, 4), image_similarity.bounds)
     X_best = image_similarity.optimizers

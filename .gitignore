@@ -186,3 +186,6 @@ stats
 
 # Custom VSCode editor settings
 .vscode
+
+# File management
+.DS_Store

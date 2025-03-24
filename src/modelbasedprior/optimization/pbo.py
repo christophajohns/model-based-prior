@@ -4,7 +4,6 @@ import numpy as np
 
 from typing import Tuple, Callable
 from itertools import combinations
-from botorch.test_functions.synthetic import SyntheticTestFunction
 from botorch.optim import optimize_acqf
 from botorch.fit import fit_gpytorch_mll
 from botorch.models.pairwise_gp import PairwiseGP, PairwiseLaplaceMarginalLogLikelihood
@@ -16,7 +15,7 @@ from botorch.sampling.pathwise_sampler import PathwiseSampler
 from botorch.acquisition.prior_monte_carlo import qPriorExpectedImprovement, PriorMCAcquisitionFunction
 from botorch.utils.prior import UserPriorLocation
 
-from modelbasedprior.optimization.bo import generate_data, generate_data_from_prior
+from modelbasedprior.optimization.bo import generate_data, generate_data_from_prior, Objective
 
 def generate_comparisons(y: torch.Tensor) -> torch.Tensor:
     """Create noisy pairwise comparisons from utility values."""
@@ -97,7 +96,7 @@ def map_to_existing(X: torch.Tensor, points: torch.Tensor, tolerance: float = 1e
     
     return new_X, indices_tensor
 
-def make_new_data(X: torch.Tensor, next_X: torch.Tensor, comparisons: torch.Tensor, objective: SyntheticTestFunction):
+def make_new_data(X: torch.Tensor, next_X: torch.Tensor, comparisons: torch.Tensor, objective: Objective):
     """Generate new pairwise comparisons and update the data."""
     # Map next_X points back to their indices in X (or append if new)
     X, next_indices = map_to_existing(X, next_X)
@@ -125,7 +124,7 @@ def make_new_data(X: torch.Tensor, next_X: torch.Tensor, comparisons: torch.Tens
     return X, comparisons
 
 def maximize(
-    objective: SyntheticTestFunction,
+    objective: Objective,
     user_prior: UserPriorLocation | None = None,
     include_current_best: bool = True,
     num_trials: int = 20,

@@ -1,8 +1,7 @@
 import torch
 import logging
 
-from typing import Tuple, Callable
-from botorch.test_functions.synthetic import SyntheticTestFunction
+from typing import Tuple, Callable, Protocol
 from botorch.optim import optimize_acqf
 from botorch.fit import fit_gpytorch_mll
 from botorch.models import SingleTaskGP
@@ -15,6 +14,13 @@ from gpytorch.mlls import ExactMarginalLogLikelihood
 from botorch.acquisition.prior_monte_carlo import qPriorExpectedImprovement, PriorMCAcquisitionFunction
 from botorch.utils.prior import UserPriorLocation, unnormalize
 
+class Objective(Protocol):
+    bounds: torch.Tensor  # Example: torch.tensor([[-5.12, -5.12], [5.12, 5.12]])
+    dim: int
+
+    def __call__(self, X: torch.Tensor, *args, **kwargs) -> torch.Tensor:
+        ...
+
 def init_and_fit_model(X: torch.Tensor, y: torch.Tensor, bounds: torch.Tensor) -> SingleTaskGP:
     """Initialize and fit a Gaussian process model."""
     model = SingleTaskGP(train_X=X, train_Y=y, input_transform=Normalize(d=X.shape[-1], bounds=bounds), outcome_transform=Standardize(m=1))
@@ -22,14 +28,14 @@ def init_and_fit_model(X: torch.Tensor, y: torch.Tensor, bounds: torch.Tensor) -
     fit_gpytorch_mll(mll)
     return model
 
-def generate_data(objective: SyntheticTestFunction, n: int = 1) -> Tuple[torch.Tensor, torch.Tensor]:
+def generate_data(objective: Objective, n: int = 1) -> Tuple[torch.Tensor, torch.Tensor]:
     """Generate random input data X and corresponding utility values."""
     X = unnormalize(torch.rand(n, objective.dim, dtype=torch.float64), objective.bounds)
     y = objective(X).reshape(-1, 1)
     return X, y
 
 def generate_data_from_prior(
-        objective: SyntheticTestFunction,
+        objective: Objective,
         user_prior: UserPriorLocation,
         n: int = 1,
         max_retries: int = 1000,
@@ -62,7 +68,7 @@ def generate_data_from_prior(
     y = torch.cat([default_y, sampled_y])
     return X, y
 
-def make_new_data(X: torch.Tensor, y: torch.Tensor, next_X: torch.Tensor, objective: SyntheticTestFunction) -> Tuple[torch.Tensor, torch.Tensor]:
+def make_new_data(X: torch.Tensor, y: torch.Tensor, next_X: torch.Tensor, objective: Objective) -> Tuple[torch.Tensor, torch.Tensor]:
     """Generate new ratings and update the data."""
     # Generate potentially noisy utility values for the new points
     y_next = objective(next_X).reshape(-1, 1)  # Get utility values for the corresponding points
@@ -74,7 +80,7 @@ def make_new_data(X: torch.Tensor, y: torch.Tensor, next_X: torch.Tensor, object
     return X, y
 
 def maximize(
-    objective: SyntheticTestFunction,
+    objective: Objective,
     user_prior: UserPriorLocation | None = None,
     num_trials: int = 20,
     num_initial_samples: int = 2,  # if set to 1, Standardize will fail
