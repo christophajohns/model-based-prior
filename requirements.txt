@@ -8,3 +8,4 @@ pyiqa
 python-dotenv
 seaborn
 dash
+"fastapi[standard]"
