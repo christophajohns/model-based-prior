@@ -5,7 +5,7 @@ if __name__ == "__main__":
     import torch
     from modelbasedprior.logger import setup_logger
     from modelbasedprior.prior import ModelBasedPrior
-    from modelbasedprior.optimization.human_evaluator.human_evaluator_objective import HumanEvaluatorObjective
+    from modelbasedprior.objectives.human_evaluator.human_evaluator_objective import HumanEvaluatorObjective
     from modelbasedprior.objectives.image_similarity import ImageSimilarityLoss
     from modelbasedprior.optimization.bo import maximize
 

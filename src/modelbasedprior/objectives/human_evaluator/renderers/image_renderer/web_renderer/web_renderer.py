@@ -2,7 +2,7 @@ import time
 import webbrowser
 import torch
 from threading import Thread
-from modelbasedprior.optimization.human_evaluator.renderers.image_renderer.web_renderer.web_server import run_server, set_latest_image, get_latest_rating, reset_latest_rating
+from modelbasedprior.objectives.human_evaluator.renderers.image_renderer.web_renderer.web_server import run_server, set_latest_image, get_latest_rating, reset_latest_rating
 from modelbasedprior.objectives.image_similarity import ImageSimilarityLoss
 
 class WebImageHumanEvaluatorRenderer:
@@ -55,7 +55,7 @@ if __name__ == "__main__":
     import logging
     from modelbasedprior.logger import setup_logger
     from modelbasedprior.prior import ModelBasedPrior
-    from modelbasedprior.optimization.human_evaluator.human_evaluator_objective import HumanEvaluatorObjective
+    from modelbasedprior.objectives.human_evaluator.human_evaluator_objective import HumanEvaluatorObjective
     from modelbasedprior.optimization.bo import maximize
 
     logger = setup_logger(level=logging.INFO)  # or logging.DEBUG for more detailed output or logging.WARNING for less output

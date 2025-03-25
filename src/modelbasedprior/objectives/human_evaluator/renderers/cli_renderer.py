@@ -13,7 +13,7 @@ if __name__ == "__main__":
     from botorch.utils.prior import DefaultPrior
     from modelbasedprior.objectives.sphere import Sphere
     from modelbasedprior.logger import setup_logger
-    from modelbasedprior.optimization.human_evaluator.human_evaluator_objective import HumanEvaluatorObjective
+    from modelbasedprior.objectives.human_evaluator.human_evaluator_objective import HumanEvaluatorObjective
 
     # CLI-based evaluation
     objective = Sphere(dim=2, negate=True)

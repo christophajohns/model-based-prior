@@ -6,3 +6,4 @@ from .scatterplot_quality import ScatterPlotQualityLoss
 from .semantic_agreement import SemanticAgreementCost
 from .shekel import Shekel, Shekel2D, ShekelNoGlobal, Shekel2DNoGlobal
 from .sphere import Sphere
+from .human_evaluator import HumanEvaluatorObjective

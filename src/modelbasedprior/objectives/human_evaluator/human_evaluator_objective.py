@@ -1,7 +1,7 @@
 import torch
 import logging
 from modelbasedprior.optimization.bo import maximize
-from modelbasedprior.optimization.human_evaluator.renderers import HumanEvaluatorRenderer, CLIHumanEvaluatorRenderer
+from modelbasedprior.objectives.human_evaluator.renderers import HumanEvaluatorRenderer, CLIHumanEvaluatorRenderer
 
 class HumanEvaluatorObjective:
     def __init__(self, renderer: HumanEvaluatorRenderer = CLIHumanEvaluatorRenderer(), dim=2, bounds=None):

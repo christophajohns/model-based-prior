@@ -35,7 +35,7 @@ if __name__ == "__main__":
     import logging
     from modelbasedprior.logger import setup_logger
     from modelbasedprior.prior import ModelBasedPrior
-    from modelbasedprior.optimization.human_evaluator.human_evaluator_objective import HumanEvaluatorObjective
+    from modelbasedprior.objectives.human_evaluator.human_evaluator_objective import HumanEvaluatorObjective
     from modelbasedprior.optimization.bo import maximize
 
     logger = setup_logger(level=logging.INFO)  # or logging.DEBUG for more detailed output or logging.WARNING for less output
