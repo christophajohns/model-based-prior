@@ -180,10 +180,23 @@ def serve_image(image_tensor: torch.Tensor | None):
     if image_tensor is None:
         return "No image available", 404
 
-    # Convert tensor to an image in memory
-    img = image_tensor.cpu().numpy().reshape(16, 16, 3)
+    # Handle different tensor shapes
+    img_array = image_tensor.cpu().numpy()
+    if img_array.ndim == 2:  # Grayscale image case
+        cmap = "gray"
+    elif img_array.ndim == 3 and img_array.shape[-1] in {1, 3, 4}:  
+        # Single-channel, RGB, or RGBA
+        cmap = None
+    elif img_array.ndim == 3 and img_array.shape[0] in {1, 3, 4}:  
+        # (C, H, W) format, so we transpose to (H, W, C)
+        img_array = img_array.transpose(1, 2, 0)
+        cmap = None
+    else:
+        return "Unsupported image format", 400
+    
+    # Convert the image array to an in-memory PNG file
     buf = io.BytesIO()
-    plt.imsave(buf, img, format="png")
+    plt.imsave(buf, img_array, cmap=cmap, format="png")
     buf.seek(0)
 
     return StreamingResponse(buf, media_type="image/png")
