@@ -37,6 +37,7 @@ def plot_optimization_trace(
         num_initial_samples: int = 4,
         xlabel: str = r"$\text{Iteration } i$",
         ylabel: str = r"$\text{Observed } f_i(x)$",
+        **kwargs,
     ) -> None:
     """
     Plot the observed function values over iterations.
@@ -48,7 +49,7 @@ def plot_optimization_trace(
     """
     iterations = torch.arange(len(y))
 
-    ax.plot(iterations, y, marker='o', linestyle='-', alpha=0.9)
+    ax.plot(iterations, y, marker='o', linestyle='-', alpha=0.9, **kwargs)
 
     # Indicate initial samples
     ax.axvline(x=num_initial_samples - 0.5, color="darkgrey", linestyle="--", alpha=0.5)
@@ -89,7 +90,13 @@ result_best_X, result_best_y = compute_best_X_y(result_X, result_y)
 plot_image_similarity(result_X, original_image, image_renderer._target_image)
 plot_image_similarity(result_best_X, original_image, image_renderer._target_image)
 
-fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(8, 10), sharex=True)
-plot_optimization_trace(axes[0], num_initial_samples=NUM_INITIAL_SAMPLES, y=result_y, xlabel='', ylabel=r"$\text{Observed } f_i(x)$")
-plot_optimization_trace(axes[1], num_initial_samples=NUM_INITIAL_SAMPLES, y=result_best_y, ylabel=r"$\text{Best Observed } f_i^*(x)$")
+prior_predict_y = prior_predict_func(result_X)
+_, prior_predict_best_y = compute_best_X_y(result_X, prior_predict_y)
+
+fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(12, 10), sharex=True)
+plot_optimization_trace(axes[0][0], num_initial_samples=NUM_INITIAL_SAMPLES, y=result_y, xlabel='', ylabel=r"$\text{Observed } f(x_i)$")
+plot_optimization_trace(axes[1][0], num_initial_samples=NUM_INITIAL_SAMPLES, y=result_best_y, ylabel=r"$\text{Best Observed } f(x_i^*)$")
+plot_optimization_trace(axes[0][1], num_initial_samples=NUM_INITIAL_SAMPLES, y=prior_predict_y, xlabel='', ylabel=r"$\text{Prior Observed } \hat{f}(x_i)$", color='darkorange')
+plot_optimization_trace(axes[1][1], num_initial_samples=NUM_INITIAL_SAMPLES, y=prior_predict_best_y, ylabel=r"$\text{Prior Best Observed } \hat{f}(x_i^*)$", color='darkorange')
+fig.tight_layout()
 plt.show()

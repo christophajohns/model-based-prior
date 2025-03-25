@@ -165,7 +165,7 @@ def generate_html(has_target_image: bool):
                 {% endif %}
             </div>
             <form method="post">
-                <label for="rating">Enter rating (0-10):</label>
+                <label for="rating">Enter rating (0-10; higher is better):</label>
                 <input type="number" id="rating" name="rating" min="0" max="10" step="0.1" required>
                 <button type="submit">Submit Rating</button>
             </form>
