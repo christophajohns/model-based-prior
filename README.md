@@ -42,6 +42,16 @@ To try out the prior-guided Bayesian optimization, run the following command:
 python main.py
 ```
 
+This will run an optimization for a synthetic Sphere objective function.
+
+Alternatively, you can try out an interactive image tuning task. For this, set the `ORIGINAL_IMAGE_PATH` to point to an image file in your `.env` file and run the following script:
+
+```bash
+python scripts/image_tuning_app.py
+```
+
+This will let you interactively optimize the image to fit to a target tuning for your provided image.
+
 ## Replication
 
 You can replicate the experiments and figures used in our paper.
