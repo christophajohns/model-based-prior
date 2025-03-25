@@ -13,7 +13,7 @@ To install the project, follow these steps:
 3. Create a virtual environment from `environment.yml`: `conda env create -f environment.yml`
 4. Activate the virtual environment: `conda activate model-based-prior`
 5. Install the local package: `pip install -e .`
-6. Copy the `.env.example` file into a new file `.env`
+6. Copy the `.env.example` file into a new file `.env`: `cp .env.example .env`
 7. Set the variables in `.env`
 
 You can also install the necessary packages using `pip`:
