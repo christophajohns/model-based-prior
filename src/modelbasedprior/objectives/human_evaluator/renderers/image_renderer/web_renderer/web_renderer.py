@@ -12,6 +12,8 @@ class WebImageHumanEvaluatorRenderer:
         self._optimal_transformation = optimal_transformation
         self._target_image = generate_image(torch.tensor(self._optimal_transformation).view(1, 1, -1), self._original_image).squeeze() if self._optimal_transformation is not None else None
         self.server_thread = None
+        self.browser_opened = False  # Track whether the browser was opened
+
 
     def start_server(self):
         """Run FastAPI server in a separate thread."""
@@ -43,7 +45,9 @@ class WebImageHumanEvaluatorRenderer:
                 reset_latest_rating()
 
                 # Open the UI
-                webbrowser.open("http://127.0.0.1:8000")
+                if not self.browser_opened:  # Open browser only once
+                    webbrowser.open("http://127.0.0.1:8000")
+                    self.browser_opened = True
 
                 # Wait for user input
                 while get_latest_rating() is None:

@@ -142,7 +142,7 @@ def generate_html(has_target_image: bool):
                 .then(response => response.json())
                 .then(data => {
                     if (data.status === 'success') {
-                        window.location.reload();
+                        window.location.replace('/thank-you');
                     }
                 });
             });
@@ -216,6 +216,67 @@ def get_target_image():
     """Serve the target image dynamically without saving it to disk."""
     global target_image_tensor
     return serve_image(image_tensor=target_image_tensor)
+
+@app.get("/thank-you", response_class=HTMLResponse)
+def thank_you_page():
+    template = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta http-equiv="refresh" content="5;url=/" /> <!-- Auto-refresh after 5s -->
+        <title>Thank You</title>
+        <style>
+            :root {
+                --bg-color: #f4f4f8;
+                --text-color: #333;
+                --accent-color: #3498db;
+                --card-bg: white;
+                --border-radius: 8px;
+            }
+            
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+            
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+                background-color: var(--bg-color);
+                color: var(--text-color);
+                line-height: 1.6;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                min-height: 100vh;
+                padding: 1rem;
+            }
+            
+            .container {
+                background-color: var(--card-bg);
+                border-radius: var(--border-radius);
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                padding: 2rem;
+                width: 100%;
+                max-width: 700px;
+                text-align: center;
+            }
+            
+            h2 {
+                margin-bottom: 1.5rem;
+                color: var(--text-color);
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h2>Thank you for submitting your rating!</h2>
+            <p>Waiting for the next image...</p>
+        </div>
+    </body>
+    </html>
+    """
+    return template
 
 @app.post("/submit")
 def submit_rating(rating: float = Form(...)):
