@@ -3,7 +3,7 @@ import webbrowser
 import torch
 from threading import Thread
 from typing import Tuple
-from modelbasedprior.objectives.human_evaluator.renderers.image_renderer.web_renderer.web_server import run_server, set_latest_image, get_latest_rating, reset_latest_rating, set_target_image
+from modelbasedprior.objectives.human_evaluator.renderers.image_renderer.web_renderer.web_server import run_server, set_latest_image, reset_latest_image, get_latest_rating, reset_latest_rating, set_target_image
 from modelbasedprior.objectives.image_similarity import generate_image
 
 class WebImageHumanEvaluatorRenderer:
@@ -58,6 +58,7 @@ class WebImageHumanEvaluatorRenderer:
                 ratings[i, j] = rating
 
                 reset_latest_rating()  # Clear rating for the next round
+                reset_latest_image()
 
         return ratings
 

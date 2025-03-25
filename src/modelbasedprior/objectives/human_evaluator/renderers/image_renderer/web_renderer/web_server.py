@@ -209,7 +209,13 @@ def serve_page():
 def get_image():
     """Serve the current image dynamically without saving it to disk."""
     global latest_image_tensor
-    return serve_image(image_tensor=latest_image_tensor)
+    if latest_image_tensor is None:
+        return "No image available", 404
+    
+    # Serve the image as usual
+    image_response = serve_image(image_tensor=latest_image_tensor)
+    
+    return image_response
 
 @app.get("/target-image")
 def get_target_image():
@@ -223,7 +229,6 @@ def thank_you_page():
     <!DOCTYPE html>
     <html lang="en">
     <head>
-        <meta http-equiv="refresh" content="5;url=/" /> <!-- Auto-refresh after 5s -->
         <title>Thank You</title>
         <style>
             :root {
@@ -267,6 +272,22 @@ def thank_you_page():
                 color: var(--text-color);
             }
         </style>
+        <script>
+        function checkForUpdate() {
+            fetch('/check-update')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.updated) {
+                        window.location.replace('/');
+                    } else {
+                        setTimeout(checkForUpdate, 500); // Check again in 0.5 seconds
+                    }
+                })
+                .catch(error => console.error("Error checking update:", error));
+        }
+
+        document.addEventListener('DOMContentLoaded', checkForUpdate);
+        </script>
     </head>
     <body>
         <div class="container">
@@ -285,10 +306,21 @@ def submit_rating(rating: float = Form(...)):
     latest_rating = rating  # Store rating in memory
     return {"status": "success"}  # Send simple success response
 
+@app.get("/check-update")
+def check_update():
+    """Check if a new image has been set."""
+    global latest_image_tensor
+    return {"updated": (latest_image_tensor is not None) and (get_latest_rating() is None)}
+
 def set_latest_image(tensor: torch.Tensor):
     """Set the latest image tensor to be displayed on the web UI."""
     global latest_image_tensor
     latest_image_tensor = tensor
+
+def reset_latest_image():
+    """Reset the latest image tensor to be displayed on the web UI."""
+    global latest_image_tensor
+    latest_image_tensor = None
 
 def get_latest_rating():
     """Retrieve the latest rating (used by WebHumanEvaluatorRenderer)."""
