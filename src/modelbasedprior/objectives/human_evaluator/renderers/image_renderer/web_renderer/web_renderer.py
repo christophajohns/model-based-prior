@@ -2,12 +2,15 @@ import time
 import webbrowser
 import torch
 from threading import Thread
-from modelbasedprior.objectives.human_evaluator.renderers.image_renderer.web_renderer.web_server import run_server, set_latest_image, get_latest_rating, reset_latest_rating
+from typing import Tuple
+from modelbasedprior.objectives.human_evaluator.renderers.image_renderer.web_renderer.web_server import run_server, set_latest_image, get_latest_rating, reset_latest_rating, set_target_image
 from modelbasedprior.objectives.image_similarity import generate_image
 
 class WebImageHumanEvaluatorRenderer:
-    def __init__(self, original_image: torch.Tensor):
+    def __init__(self, original_image: torch.Tensor, optimal_transformation: Tuple[float, ...] | None = None):
         self._original_image = original_image
+        self._optimal_transformation = optimal_transformation
+        self._target_image = generate_image(torch.tensor(self._optimal_transformation).view(1, 1, -1), self._original_image).squeeze() if self._optimal_transformation is not None else None
         self.server_thread = None
 
     def start_server(self):
@@ -20,6 +23,9 @@ class WebImageHumanEvaluatorRenderer:
         """Render an image, launch the web UI, and collect a human rating."""
         if self.server_thread is None:
             self.start_server()
+
+        if self._target_image is not None:
+            set_target_image(self._target_image.cpu().permute(1, 2, 0))
 
         transformed_images = generate_image(X.view(1, 1, -1), self._original_image)  # shape: n x q x C x H x W
         n, q, C, H, W = transformed_images.shape  # Extract shape
@@ -69,7 +75,7 @@ if __name__ == "__main__":
         predict_func=image_similarity,
         minimize=False,
     )
-    image_renderer = WebImageHumanEvaluatorRenderer(original_image)
+    image_renderer = WebImageHumanEvaluatorRenderer(original_image) # , optimal_transformation=(1.3, 1.3, 1.3, 0.1))
     human_evaluator = HumanEvaluatorObjective(renderer=image_renderer, dim=image_similarity.dim, bounds=image_similarity._bounds)
 
     result_X, result_y, model = maximize(human_evaluator, user_prior=user_prior, num_trials=5, logger=logger)
