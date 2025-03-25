@@ -1,14 +1,14 @@
 import torch
 import matplotlib.pyplot as plt
-from modelbasedprior.objectives.image_similarity import ImageSimilarityLoss
+from modelbasedprior.objectives.image_similarity import generate_image
 
 class MatplotlibImageHumanEvaluatorRenderer:
     def __init__(self, original_image: torch.Tensor):
-        self.image_similarity = ImageSimilarityLoss(original_image)
+        self._original_image = original_image
 
     def render(self, X: torch.Tensor) -> torch.Tensor:
         """Render the image and collect a human rating."""
-        transformed_images = self.image_similarity._generate_image(X.view(1, 1, -1))  # shape: n x q x C x H x W
+        transformed_images = generate_image(X.view(1, 1, -1), self._original_image)  # shape: n x q x C x H x W
         n, q, C, H, W = transformed_images.shape  # Extract shape
 
         ratings = torch.zeros(n, q, dtype=X.dtype)  # Store ratings
@@ -36,6 +36,7 @@ if __name__ == "__main__":
     from modelbasedprior.logger import setup_logger
     from modelbasedprior.prior import ModelBasedPrior
     from modelbasedprior.objectives.human_evaluator.human_evaluator_objective import HumanEvaluatorObjective
+    from modelbasedprior.objectives.image_similarity import ImageSimilarityLoss
     from modelbasedprior.optimization.bo import maximize
 
     logger = setup_logger(level=logging.INFO)  # or logging.DEBUG for more detailed output or logging.WARNING for less output

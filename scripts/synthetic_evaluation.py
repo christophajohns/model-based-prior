@@ -22,7 +22,7 @@ from modelbasedprior.visualization.visualization import (
     get_utility_vs_latent_utility_fig,
     pad_images,
 )
-from modelbasedprior.objectives.image_similarity import ImageSimilarityLoss
+from modelbasedprior.objectives.image_similarity import ImageSimilarityLoss, generate_image
 from modelbasedprior.objectives.scatterplot_quality import ScatterPlotQualityLoss
 from modelbasedprior.benchmarking.runner import BenchmarkRunner, ExperimentConfig
 from modelbasedprior.benchmarking.database import ExperimentConfig as DBExperimentConfig, Objective as DBObjective
@@ -48,7 +48,7 @@ def get_outcome_quality_per_iteration_fig_iqr(best_X_lst: List[torch.Tensor], be
     return fig
 
 def plot_image_similarity(X: torch.Tensor, objective: ImageSimilarityLoss):
-    candidate_images = objective._generate_image(X)
+    candidate_images = generate_image(X, objective._original_image)
     target_image = objective._original_target_image.squeeze(0)
     show_images(make_grid([objective._original_image, target_image, *candidate_images]))
 
@@ -109,8 +109,8 @@ db_path = os.path.join(DATA_DIR, DB_NAME) if not SMOKE_TEST else temporary_db_pa
 
 bias_levels = ["Unbiased", "Biased"]
 uncertainty_levels = ["Certain", "MoreCertain", "Uncertain", "MoreUncertain"]
-prior_types = ["None", *bias_levels, *[f"{bias}{uncertainty}" for bias, uncertainty in itertools.product(bias_levels, uncertainty_levels)]]
-# prior_types = ["None", "Biased"]  # Use above for full analysis; this is for a simple injection comparison
+# prior_types = ["None", *bias_levels, *[f"{bias}{uncertainty}" for bias, uncertainty in itertools.product(bias_levels, uncertainty_levels)]]
+prior_types = ["None", "Biased"]  # Use above for full analysis; this is for a simple injection comparison
 optimization_methods = ["BO", "PBO", "PriorSampling"]
 injection_methods = ["None", "ColaBO", "piBO"]
 
@@ -215,9 +215,9 @@ configs = [
         # sphere_noisy_configs,
         # sphere_many_initial_samples_configs,
         # sphere_many_iterations_configs,
-        shekel_configs,
-        shekel_many_paths_configs,
-        # image_similarity_configs,
+        # shekel_configs,
+        # shekel_many_paths_configs,
+        image_similarity_configs,
         # scatterplot_quality_configs,
         # mrlayout_quality_configs,
     ]
@@ -279,13 +279,13 @@ if VISUALIZE_RUNS:
     # NAMES = [config_dict["name"] for config_dict in shekel_configs]
     # CONFIGS = [config_dict["config"] for config_dict in shekel_configs]
 
-    SUFFIX = "(Shekel, Many Paths)"
-    NAMES = [config_dict["name"] for config_dict in shekel_many_paths_configs]
-    CONFIGS = [config_dict["config"] for config_dict in shekel_many_paths_configs]
+    # SUFFIX = "(Shekel, Many Paths)"
+    # NAMES = [config_dict["name"] for config_dict in shekel_many_paths_configs]
+    # CONFIGS = [config_dict["config"] for config_dict in shekel_many_paths_configs]
 
-    # SUFFIX = "(Image Similarity)"
-    # NAMES = [config_dict["name"] for config_dict in image_similarity_configs]
-    # CONFIGS = [config_dict["config"] for config_dict in image_similarity_configs]
+    SUFFIX = "(Image Similarity)"
+    NAMES = [config_dict["name"] for config_dict in image_similarity_configs]
+    CONFIGS = [config_dict["config"] for config_dict in image_similarity_configs]
 
     # SUFFIX = "(Scatter Plot Quality)"
     # NAMES = [config_dict["name"] for config_dict in scatterplot_quality_configs]

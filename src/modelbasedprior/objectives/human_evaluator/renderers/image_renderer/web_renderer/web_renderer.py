@@ -3,11 +3,11 @@ import webbrowser
 import torch
 from threading import Thread
 from modelbasedprior.objectives.human_evaluator.renderers.image_renderer.web_renderer.web_server import run_server, set_latest_image, get_latest_rating, reset_latest_rating
-from modelbasedprior.objectives.image_similarity import ImageSimilarityLoss
+from modelbasedprior.objectives.image_similarity import generate_image
 
 class WebImageHumanEvaluatorRenderer:
     def __init__(self, original_image: torch.Tensor):
-        self.image_similarity = ImageSimilarityLoss(original_image)
+        self._original_image = original_image
         self.server_thread = None
 
     def start_server(self):
@@ -21,7 +21,7 @@ class WebImageHumanEvaluatorRenderer:
         if self.server_thread is None:
             self.start_server()
 
-        transformed_images = self.image_similarity._generate_image(X.view(1, 1, -1))  # shape: n x q x C x H x W
+        transformed_images = generate_image(X.view(1, 1, -1), self._original_image)  # shape: n x q x C x H x W
         n, q, C, H, W = transformed_images.shape  # Extract shape
 
         ratings = torch.zeros(n, q, dtype=X.dtype)  # Store ratings
@@ -56,6 +56,7 @@ if __name__ == "__main__":
     from modelbasedprior.logger import setup_logger
     from modelbasedprior.prior import ModelBasedPrior
     from modelbasedprior.objectives.human_evaluator.human_evaluator_objective import HumanEvaluatorObjective
+    from modelbasedprior.objectives.image_similarity import ImageSimilarityLoss
     from modelbasedprior.optimization.bo import maximize
 
     logger = setup_logger(level=logging.INFO)  # or logging.DEBUG for more detailed output or logging.WARNING for less output
