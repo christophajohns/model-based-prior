@@ -18,6 +18,16 @@ from modelbasedprior.visualization.visualization import (
 
 load_dotenv()
 
+
+# Configuration
+ORIGINAL_IMAGE_PATH = os.getenv("ORIGINAL_IMAGE_PATH")
+OPTIMAL_CONFIGURATION = (0.8, 1.2, 1.2, 0.1)  # brightness, contrast, saturation, hue
+SEED = 23489
+NUM_TRIALS = 2
+NUM_INITIAL_SAMPLES = 2
+
+
+# Helper functions
 def compute_best_X_y(X: torch.Tensor, y: torch.Tensor):
     # Compute cumulative maximum of y
     best_y, best_indices = torch.cummax(y, dim=0)
@@ -64,12 +74,8 @@ def plot_optimization_trace(
 
     ax.grid(True, linestyle="--", alpha=0.5)
 
-ORIGINAL_IMAGE_PATH = os.getenv("ORIGINAL_IMAGE_PATH")
-OPTIMAL_CONFIGURATION = (0.8, 1.2, 1.2, 0.1)  # brightness, contrast, saturation, hue
-SEED = 23489
-NUM_TRIALS = 2
-NUM_INITIAL_SAMPLES = 2
 
+# Main script
 original_image = read_image(ORIGINAL_IMAGE_PATH)
 downsampled_original_image = resize(original_image, 64)
 
