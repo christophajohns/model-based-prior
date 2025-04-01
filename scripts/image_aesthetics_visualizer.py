@@ -1,7 +1,6 @@
-# standalone_aesthetics_visualizer.py
 import dash
 # Old way (pre Dash 2.0): from dash.dependencies import Input, Output, State
-from dash import Input, Output, State, dcc, html, no_update
+from dash import Input, Output, State, dcc, html, no_update, ctx # Import ctx
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 import torch
@@ -90,11 +89,13 @@ DEFAULT_IMG_SIZE = 64 # Size used for loss calculation (faster)
 MAX_DISPLAY_IMG_SIZE = 256 # Max size for display images
 # Use a default random image if none uploaded
 DEFAULT_ORIGINAL_IMAGE = (torch.rand(3, MAX_DISPLAY_IMG_SIZE, MAX_DISPLAY_IMG_SIZE) * 255).byte()
+HEATMAP_GRID_SIZE = 20 # Resolution for the 2D heatmap plot
 
 # Define bounds from the ImageAestheticsLoss class for sliders
 # B, C, S, H
 param_names = ["Brightness", "Contrast", "Saturation", "Hue"]
 param_ids = ["brightness", "contrast", "saturation", "hue"]
+param_options = [{'label': name, 'value': p_id} for name, p_id in zip(param_names, param_ids)]
 # Use class attributes directly for robustness
 try:
     b_bounds = ImageAestheticsLoss._brightness_bounds
@@ -102,11 +103,15 @@ try:
     s_bounds = ImageAestheticsLoss._saturation_bounds
     h_bounds = ImageAestheticsLoss._hue_bounds
     default_bounds = [b_bounds, c_bounds, s_bounds, h_bounds]
+    param_bounds_map = dict(zip(param_ids, default_bounds))
 except AttributeError:
     logging.warning("Could not access bounds from ImageAestheticsLoss, using fallback defaults.")
     default_bounds = [(0.8, 1.25), (0.8, 1.25), (0.8, 1.25), (-0.25, 0.25)]
+    param_bounds_map = dict(zip(param_ids, default_bounds))
+
 
 default_values = [1.0, 1.0, 1.0, 0.0] # Neutral values
+param_defaults_map = dict(zip(param_ids, default_values))
 
 # --- Dash App Setup ---
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.LUMEN], suppress_callback_exceptions=True)
@@ -223,7 +228,7 @@ app.layout = dbc.Container([
                     html.Label("Parameter to Vary:"),
                     dcc.Dropdown(
                         id='slice-param-selector',
-                        options=[{'label': name, 'value': p_id} for name, p_id in zip(param_names, param_ids)],
+                        options=param_options,
                         value=param_ids[0], # Default to Brightness
                         clearable=False
                     ),
@@ -236,6 +241,40 @@ app.layout = dbc.Container([
                  ), width=12, md=8),
             ]),
 
+            # --- 4D Landscape Visualization ---
+            html.Hr(),
+            dbc.Row([
+                dbc.Col(html.H4("Objective Landscape (2D Slices / Heatmap)"), width=12, className="text-center"),
+            ]),
+            dbc.Row([
+                # Controls Column
+                dbc.Col([
+                    dbc.Label("X-Axis Parameter:"),
+                    dcc.Dropdown(id='heatmap-x-axis', options=param_options, value=param_ids[0], clearable=False),
+                    html.Br(),
+                    dbc.Label("Y-Axis Parameter:"),
+                    dcc.Dropdown(id='heatmap-y-axis', options=param_options, value=param_ids[1], clearable=False),
+                    html.Br(),
+                    # Dynamically updated fixed value inputs
+                    dbc.Row([
+                         dbc.Col(dbc.Label("Fixed Param 1:", id='fixed-param-1-label'), width=6),
+                         dbc.Col(dcc.Input(id='fixed-param-1-input', type='number', style={'width': '100%'}), width=6),
+                    ], className="mb-2 align-items-center"),
+                     dbc.Row([
+                         dbc.Col(dbc.Label("Fixed Param 2:", id='fixed-param-2-label'), width=6),
+                         dbc.Col(dcc.Input(id='fixed-param-2-input', type='number', style={'width': '100%'}), width=6),
+                    ], className="mb-2 align-items-center"),
+                    html.Br(),
+                    dbc.Button("Generate 2D Heatmap", id="plot-heatmap-button", color="warning", className="w-100"),
+                    html.Div(id='heatmap-calculation-status', style={'textAlign': 'center', 'marginTop': '10px', 'fontSize': 'small'}),
+                ], width=12, md=4),
+                # Plot Column
+                dbc.Col(dcc.Loading(
+                    id="loading-heatmap-plot",
+                    type="circle",
+                    children=[dcc.Graph(id='heatmap-plot-graph')] # Wrap initial graph in loading
+                 ), width=12, md=8),
+            ]),
 
         ], width=12, lg=8),
     ]),
@@ -244,8 +283,11 @@ app.layout = dbc.Container([
     dcc.Store(id='original-image-store'),
     # Hidden storage for computed metrics (optional, could recompute)
     dcc.Store(id='computed-metrics-store'),
-     # Hidden storage for loss config
-     dcc.Store(id='loss-config-store'),
+    # Hidden storage for loss config
+    dcc.Store(id='loss-config-store'),
+    # Hidden store for fixed parameter IDs (to help heatmap callback)
+    dcc.Store(id='fixed-param-ids-store', data={'p1': None, 'p2': None}),
+
 
 ], fluid=True)
 
@@ -260,20 +302,19 @@ for p_id in param_ids:
         Input(f'input-{p_id}', 'value'),
         prevent_initial_call=True # Important to prevent loops on startup
     )
-    def sync_slider_input(slider_val, input_val):
-        ctx = dash.callback_context
-        if not ctx.triggered:
+    def sync_slider_input(slider_val, input_val, param_id=p_id): # Need to capture p_id
+        # Use dash.ctx instead of callback_context
+        triggered_id = ctx.triggered_id
+        if not triggered_id:
             return no_update, no_update
 
-        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-
-        if trigger_id == f'slider-{p_id}':
+        if triggered_id == f'slider-{param_id}':
             # Slider changed, update input only if different (with tolerance)
             if slider_val is not None and (input_val is None or not np.isclose(slider_val, input_val)):
                  return no_update, slider_val
             else:
                  return no_update, no_update
-        elif trigger_id == f'input-{p_id}':
+        elif triggered_id == f'input-{param_id}':
             # Input changed, update slider only if different (with tolerance)
             if input_val is not None and (slider_val is None or not np.isclose(input_val, slider_val)):
                  return input_val, no_update
@@ -345,9 +386,8 @@ def store_loss_config(k, u, o, size):
     prevent_initial_call=True # Prevent firing on startup
 )
 def update_main_output(stored_image_data, loss_config, n_clicks, brightness, contrast, saturation, hue):
-    ctx = dash.callback_context
-
-    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else 'initial load'
+    # Use dash.ctx instead of callback_context
+    trigger_id = ctx.triggered_id
     logging.info(f"update_main_output triggered by: {trigger_id}")
 
     # Handle initial load or cases where essential data is missing
@@ -497,7 +537,6 @@ def update_main_output(stored_image_data, loss_config, n_clicks, brightness, con
 
 # Callback to generate 1D slice plot
 @app.callback(
-    # Output('slice-plot-graph', 'figure'), # Original way, causes flicker
     Output("loading-slice-plot", "children"), # Update the content of the loading component
     Input('plot-slice-button', 'n_clicks'),
     State('slice-param-selector', 'value'),
@@ -554,13 +593,14 @@ def generate_slice_plot(n_clicks, slice_param_id, stored_image_data, loss_config
     # --- 2. Define Parameter Range and Fixed Values ---
     current_params = {'brightness': br, 'contrast': co, 'saturation': sa, 'hue': hu}
     try:
-        param_idx = param_ids.index(slice_param_id)
+        param_name_map = dict(zip(param_ids, param_names))
+        param_name = param_name_map[slice_param_id]
     except ValueError:
          logging.error(f"Invalid slice parameter ID: {slice_param_id}")
          error_fig = go.Figure().update_layout(title=f"Invalid parameter selected: {slice_param_id}")
          return [dcc.Graph(figure=error_fig)]
 
-    bounds = default_bounds[param_idx]
+    bounds = param_bounds_map[slice_param_id]
     param_range = torch.linspace(bounds[0], bounds[1], steps=25) # 25 steps for the plot
 
     scores = []
@@ -571,12 +611,13 @@ def generate_slice_plot(n_clicks, slice_param_id, stored_image_data, loss_config
     start_plot_calc = time.time()
     for val in param_range:
         # Construct the parameter tensor (1, 1, 4) for this step
-        X_eval = torch.tensor([[
-            val.item() if slice_param_id == 'brightness' else current_params['brightness'],
-            val.item() if slice_param_id == 'contrast' else current_params['contrast'],
-            val.item() if slice_param_id == 'saturation' else current_params['saturation'],
-            val.item() if slice_param_id == 'hue' else current_params['hue'],
-        ]], dtype=torch.float32).unsqueeze(0) # Shape (1, 1, 4)
+        X_eval_list = []
+        for pid in param_ids:
+            if pid == slice_param_id:
+                X_eval_list.append(val.item())
+            else:
+                X_eval_list.append(current_params[pid])
+        X_eval = torch.tensor([[X_eval_list]], dtype=torch.float32) # Shape (1, 1, 4)
 
         # Generate the single modified image using the internal UINT8 original
         # generate_image expects uint8 [0, 255], returns float tensor likely [0, 255]
@@ -626,7 +667,6 @@ def generate_slice_plot(n_clicks, slice_param_id, stored_image_data, loss_config
     fig.add_vline(x=current_val, line_width=2, line_dash="dash", line_color="red",
                   annotation_text="Current", annotation_position="top left")
 
-    param_name = param_names[param_idx]
     fig.update_layout(
         title=f"Score vs. {param_name}<br>(Fixed: {fixed_params_desc})",
         xaxis_title=f"{param_name} Value",
@@ -639,6 +679,227 @@ def generate_slice_plot(n_clicks, slice_param_id, stored_image_data, loss_config
 
     # Return the Graph component wrapped in a list for the Loading component's children
     return [dcc.Graph(figure=fig)]
+
+
+# Update fixed parameter input labels, ranges, and default values
+@app.callback(
+    Output('fixed-param-1-label', 'children'),
+    Output('fixed-param-1-input', 'min'),
+    Output('fixed-param-1-input', 'max'),
+    Output('fixed-param-1-input', 'step'),
+    Output('fixed-param-1-input', 'value'),
+    Output('fixed-param-2-label', 'children'),
+    Output('fixed-param-2-input', 'min'),
+    Output('fixed-param-2-input', 'max'),
+    Output('fixed-param-2-input', 'step'),
+    Output('fixed-param-2-input', 'value'),
+    Output('fixed-param-ids-store', 'data'), # Store the IDs being fixed
+    Input('heatmap-x-axis', 'value'),
+    Input('heatmap-y-axis', 'value'),
+    State('slider-brightness', 'value'), # Get current slider values for defaults
+    State('slider-contrast', 'value'),
+    State('slider-saturation', 'value'),
+    State('slider-hue', 'value'),
+)
+def update_fixed_param_inputs(x_axis_id, y_axis_id, cur_br, cur_co, cur_sa, cur_hu):
+    if not x_axis_id or not y_axis_id:
+        return no_update # Should not happen with clearable=False
+
+    current_param_values = {'brightness': cur_br, 'contrast': cur_co, 'saturation': cur_sa, 'hue': cur_hu}
+    param_name_map = dict(zip(param_ids, param_names))
+
+    fixed_ids = [p_id for p_id in param_ids if p_id not in [x_axis_id, y_axis_id]]
+
+    if len(fixed_ids) != 2:
+        # This might happen briefly if x_axis == y_axis, handle gracefully
+        logging.warning(f"Error: Expected 2 fixed params, found {len(fixed_ids)} (X={x_axis_id}, Y={y_axis_id})")
+        # Return default labels/values for first two params as fallback
+        fixed_ids = [pid for pid in param_ids if pid not in [param_ids[0], param_ids[1]]]
+        if len(fixed_ids) != 2: fixed_ids = param_ids[2:] # Absolute fallback
+
+
+    p1_id = fixed_ids[0]
+    p2_id = fixed_ids[1]
+
+    p1_name = param_name_map[p1_id]
+    p2_name = param_name_map[p2_id]
+    p1_bounds = param_bounds_map[p1_id]
+    p2_bounds = param_bounds_map[p2_id]
+    p1_default = current_param_values[p1_id] # Use current slider value as default
+    p2_default = current_param_values[p2_id] # Use current slider value as default
+
+    step = 0.01 # Standard step
+
+    fixed_param_ids_data = {'p1': p1_id, 'p2': p2_id}
+
+    return (
+        f"Fixed {p1_name}:", p1_bounds[0], p1_bounds[1], step, p1_default,
+        f"Fixed {p2_name}:", p2_bounds[0], p2_bounds[1], step, p2_default,
+        fixed_param_ids_data
+    )
+
+
+# Generate 2D heatmap plot
+@app.callback(
+    Output('loading-heatmap-plot', 'children'),
+    Output('heatmap-calculation-status', 'children'),
+    Input('plot-heatmap-button', 'n_clicks'),
+    State('heatmap-x-axis', 'value'),
+    State('heatmap-y-axis', 'value'),
+    State('fixed-param-1-input', 'value'),
+    State('fixed-param-2-input', 'value'),
+    State('fixed-param-ids-store', 'data'), # Get the IDs of the fixed params
+    State('original-image-store', 'data'),
+    State('loss-config-store', 'data'),
+    prevent_initial_call=True,
+)
+def generate_heatmap_plot(
+    n_clicks, x_id, y_id, fixed_val_1, fixed_val_2, fixed_ids_data,
+    stored_image_data, loss_config
+):
+    start_time = time.time()
+    status = ""
+    placeholder_fig = go.Figure().update_layout(
+        title="Select Axes, Set Fixed Values, and Click 'Generate Heatmap'",
+         xaxis_title="X Parameter", yaxis_title="Y Parameter"
+    )
+    param_name_map = dict(zip(param_ids, param_names))
+
+    if not all([n_clicks, x_id, y_id, fixed_val_1 is not None, fixed_val_2 is not None,
+                fixed_ids_data, stored_image_data, loss_config]):
+        logging.warning("Heatmap plot called without necessary inputs.")
+        return [dcc.Graph(figure=placeholder_fig)], "Missing inputs."
+
+    if x_id == y_id:
+         error_fig = go.Figure().update_layout(title="X and Y axes cannot be the same parameter.")
+         return [dcc.Graph(figure=error_fig)], "Error: X=Y axis."
+
+    fixed_id_1 = fixed_ids_data.get('p1')
+    fixed_id_2 = fixed_ids_data.get('p2')
+    if not fixed_id_1 or not fixed_id_2:
+        error_fig = go.Figure().update_layout(title="Error identifying fixed parameters.")
+        return [dcc.Graph(figure=error_fig)], "Error: Fixed param IDs missing."
+
+
+    # --- 1. Get Base Image and Config ---
+    try:
+        img_str = stored_image_data['image_b64']
+        img_pil = Image.open(io.BytesIO(base64.b64decode(img_str))).convert('RGB')
+        img_np_hwc = np.array(img_pil)
+        img_torch_orig_uint8 = torch.from_numpy(img_np_hwc).permute(2, 0, 1).byte()
+    except Exception as e:
+        logging.exception("Error decoding stored image for heatmap:")
+        error_fig = go.Figure().update_layout(title=f"Error loading image: {e}")
+        return [dcc.Graph(figure=error_fig)], f"Error loading image: {e}"
+
+    internal_size = loss_config.get('size', DEFAULT_IMG_SIZE)
+    img_torch_internal_uint8 = resize(img_torch_orig_uint8, [internal_size, internal_size], antialias=True)
+    logging.info(f"Heatmap using internal image: {img_torch_internal_uint8.shape}")
+
+    loss_func = ImageAestheticsLoss(
+        original_image=img_torch_internal_uint8,
+        k_levels=loss_config.get('k', DEFAULT_PYRAMID_LEVELS),
+        tone_u=loss_config.get('u', DEFAULT_TONE_U_PARAM),
+        tone_o=loss_config.get('o', DEFAULT_TONE_O_PARAM),
+        negate=True # We want the score
+    )
+
+    # --- 2. Define Parameter Grid ---
+    x_bounds = param_bounds_map[x_id]
+    y_bounds = param_bounds_map[y_id]
+    x_range = torch.linspace(x_bounds[0], x_bounds[1], steps=HEATMAP_GRID_SIZE)
+    y_range = torch.linspace(y_bounds[0], y_bounds[1], steps=HEATMAP_GRID_SIZE)
+    grid_x, grid_y = torch.meshgrid(x_range, y_range, indexing='ij') # Output shape (GRID_SIZE, GRID_SIZE)
+
+    # Flatten grids for batch processing
+    flat_x = grid_x.flatten() # Shape (N*M,)
+    flat_y = grid_y.flatten() # Shape (N*M,)
+    num_points = flat_x.shape[0]
+
+    # --- 3. Construct Parameter Batch ---
+    # Create the full 4D parameter batch tensor (N*M, 1, 4)
+    # The order matters and must match the param_ids list
+    param_batch = torch.zeros((num_points, 1, 4), dtype=torch.float32)
+    fixed_params = {fixed_id_1: float(fixed_val_1), fixed_id_2: float(fixed_val_2)}
+
+    for i, p_id in enumerate(param_ids):
+        if p_id == x_id:
+            param_batch[:, 0, i] = flat_x
+        elif p_id == y_id:
+            param_batch[:, 0, i] = flat_y
+        elif p_id == fixed_id_1:
+            param_batch[:, 0, i] = fixed_params[fixed_id_1]
+        elif p_id == fixed_id_2:
+            param_batch[:, 0, i] = fixed_params[fixed_id_2]
+        else:
+             # This case should not happen if logic is correct
+             logging.error(f"Unexpected parameter ID '{p_id}' encountered during batch construction.")
+             error_fig = go.Figure().update_layout(title="Internal error building parameter batch.")
+             return [dcc.Graph(figure=error_fig)], "Internal Error."
+
+    logging.info(f"Generated parameter batch of shape: {param_batch.shape}")
+
+    # --- 4. Calculate Scores (Vectorized) ---
+    calc_start = time.time()
+    try:
+        # Generate all modified images in a batch
+        # Input: (N*M, 1, 4), uint8 (C,H,W) -> Output: (N*M, 1, C, H, W) float [0, 255]
+        modified_images_batch_nq = generate_image(param_batch, img_torch_internal_uint8)
+        logging.info(f"Generated modified image batch shape (N,q,C,H,W): {modified_images_batch_nq.shape}")
+
+        # --- FIX: Squeeze the q=1 dimension ---
+        # _compute_all_metrics expects (B, C, H, W) where B = N*M
+        modified_images_batch = modified_images_batch_nq.squeeze(1)
+        logging.info(f"Shape passed to _compute_all_metrics (B,C,H,W): {modified_images_batch.shape}")
+        # --------------------------------------
+
+        # Compute metrics and scores for the entire batch
+        # Input: (N*M, C, H, W) float [0, 255]
+        sh, de, cl, to, co_metric = loss_func._compute_all_metrics(modified_images_batch) # Outputs are (N*M,)
+
+        other_metrics = torch.stack([de, cl, to, co_metric], dim=1) # (N*M, 4)
+        mean_others = other_metrics.mean(dim=1) # (N*M,)
+        scores_flat = sh * mean_others # (N*M,)
+        scores_flat = torch.nan_to_num(scores_flat, nan=0.0, posinf=0.0, neginf=0.0)
+
+        # Reshape scores back into a 2D grid
+        scores_grid = scores_flat.reshape(HEATMAP_GRID_SIZE, HEATMAP_GRID_SIZE).cpu().numpy() # (GRID_SIZE, GRID_SIZE)
+
+    except Exception as e:
+        logging.exception("Error during batch score calculation for heatmap:")
+        error_fig = go.Figure().update_layout(title=f"Error calculating scores: {e}")
+        return [dcc.Graph(figure=error_fig)], f"Calculation Error: {e}"
+
+    calc_time = time.time() - calc_start
+    logging.info(f"Heatmap score calculation took {calc_time:.2f}s")
+    status = f"Calculation time: {calc_time:.2f}s"
+
+    # --- 5. Create Heatmap Plot ---
+    fig = go.Figure(data=go.Heatmap(
+        z=scores_grid.T,  # Transpose: z[row, col] should correspond to y[row] and x[col]; our scores_grid[i, j] corresponds to x_range[i] and y_range[j]; transposing makes z.T[j, i] correspond to y_range[j] and x_range[i]
+        x=x_range.cpu().numpy(),
+        y=y_range.cpu().numpy(),
+        colorscale='Viridis', # Or choose another colorscale
+        colorbar_title='Aesthetic Score'
+    ))
+
+    x_name = param_name_map[x_id]
+    y_name = param_name_map[y_id]
+    fixed_name_1 = param_name_map[fixed_id_1]
+    fixed_name_2 = param_name_map[fixed_id_2]
+
+    fig.update_layout(
+        title=f"Score Heatmap: {y_name} vs. {x_name}<br>(Fixed: {fixed_name_1}={fixed_val_1:.2f}, {fixed_name_2}={fixed_val_2:.2f})",
+        xaxis_title=f"{x_name}",
+        yaxis_title=f"{y_name}",
+        yaxis_autorange='reversed', # Often intuitive for heatmaps
+        margin=dict(l=60, r=20, t=80, b=50),
+    )
+
+    total_time = time.time() - start_time
+    logging.info(f"Total heatmap generation time: {total_time:.2f}s")
+
+    return [dcc.Graph(figure=fig)], status
 
 
 # --- Run the App ---
