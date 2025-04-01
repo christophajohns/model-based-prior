@@ -10,7 +10,6 @@ import io
 import base64
 import time
 import logging
-import itertools
 from torchvision.transforms.functional import resize
 
 # Assuming these imports point to the correct file locations
@@ -90,6 +89,7 @@ DEFAULT_IMG_SIZE = 64 # Size used for loss calculation (faster)
 MAX_DISPLAY_IMG_SIZE = 256 # Max size for display images
 # Use a default random image if none uploaded
 DEFAULT_ORIGINAL_IMAGE = (torch.rand(3, MAX_DISPLAY_IMG_SIZE, MAX_DISPLAY_IMG_SIZE) * 255).byte()
+LIVE_UPDATE_DELAY_MS = 250 # Minimum milliseconds between live image updates
 
 # Define bounds from the ImageAestheticsLoss class for sliders
 # B, C, S, H
@@ -143,6 +143,12 @@ app.layout = dbc.Container([
             dbc.Card([
                 dbc.CardHeader("2. Adjust Parameters"),
                 dbc.CardBody([
+                    # Live Update Toggle
+                    dbc.Row([
+                        dbc.Col(dbc.Label("Live Image Update:", html_for="live-update-toggle"), width=8),
+                        dbc.Col(dbc.Switch(id="live-update-toggle", value=True, label="On/Off"), width=4),
+                    ], className="mb-3 align-items-center"),
+                    html.Hr(),
                     # Dynamically create sliders for B, C, S, H
                     *[dbc.Row([
                         dbc.Col(html.Label(name), width=3),
@@ -427,19 +433,37 @@ def store_loss_config(k, u, o, size):
     Output('metrics-display', 'children'),
     Output('computed-metrics-store', 'data'),
     Output('calculation-status', 'children'),
+    # --- Inputs that ALWAYS trigger update ---
     Input('original-image-store', 'data'),
     Input('loss-config-store', 'data'),
     Input('recalculate-button', 'n_clicks'),
-    State('slider-brightness', 'value'),
-    State('slider-contrast', 'value'),
-    State('slider-saturation', 'value'),
-    State('slider-hue', 'value'),
+    # --- Inputs that trigger update ONLY IF Live Update is ON ---
+    Input('slider-brightness', 'value'),
+    Input('slider-contrast', 'value'),
+    Input('slider-saturation', 'value'),
+    Input('slider-hue', 'value'),
+    # --- State needed for the logic ---
+    State('live-update-toggle', 'value'),
+    # Note: Slider values are now passed directly as arguments from Inputs
     prevent_initial_call=True # Prevent firing on startup
 )
-def update_main_output(stored_image_data, loss_config, n_clicks, brightness, contrast, saturation, hue):
-    # Use dash.ctx instead of callback_context
+def update_main_output(
+    stored_image_data, loss_config, n_clicks, # Always trigger inputs
+    brightness, contrast, saturation, hue,    # Slider inputs
+    live_update_on                            # State of the toggle
+):
     trigger_id = ctx.triggered_id
-    logging.info(f"update_main_output triggered by: {trigger_id}")
+    logging.info(f"update_main_output triggered by: {trigger_id} | Live Update State: {live_update_on}") # Log toggle state
+
+    # --- Live Update Logic ---
+    is_slider_trigger = trigger_id and trigger_id.startswith('slider-')
+
+    if is_slider_trigger and not live_update_on:
+        logging.info("Live update OFF, slider trigger ignored. No recalculation.")
+        # Return no_update for all outputs (must match the number of Outputs)
+        return no_update, no_update, no_update, no_update, no_update, no_update
+    
+    logging.info("Proceeding with recalculation...") # Add log to confirm calculation proceeds
 
     # Handle initial load or cases where essential data is missing
     if not stored_image_data or not loss_config:
