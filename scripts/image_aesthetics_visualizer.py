@@ -10,6 +10,7 @@ import io
 import base64
 import time
 import logging
+import itertools
 from torchvision.transforms.functional import resize
 
 # Assuming these imports point to the correct file locations
@@ -287,6 +288,43 @@ app.layout = dbc.Container([
                     type="circle",
                     children=[dcc.Graph(id='heatmap-plot-graph')] # Wrap initial graph in loading
                  ), width=12, md=8),
+            ]),
+
+            # --- 4D Parallel Coordinates Plot Section ---
+            html.Hr(),
+            dbc.Row([
+                dbc.Col(html.H4("4D Exploration: Parallel Coordinates Plot"), width=12, className="text-center"),
+            ]),
+            dbc.Row([
+                # PCP Controls Column
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardHeader("PCP Settings"),
+                        dbc.CardBody([
+                            dbc.Label("Points per Dimension:", html_for="pcp-points-slider"),
+                            dcc.Slider(
+                                id='pcp-points-slider',
+                                min=2,
+                                max=7, # Max 7^4 = 2401 points. Higher gets very slow.
+                                step=1,
+                                value=4, # Default: 4^4 = 256 points
+                                marks={i: str(i) for i in range(2, 8)},
+                                tooltip={"placement": "bottom", "always_visible": True}
+                            ),
+                            html.P(id='pcp-total-points-info', style={'textAlign': 'center', 'marginTop': '10px', 'fontSize': 'small'}),
+                            html.Br(),
+                            dbc.Button("Generate Parallel Coordinates Plot", id="generate-pcp-button", color="info", className="w-100"),
+                            html.Div(id='pcp-calculation-status', style={'textAlign': 'center', 'marginTop': '10px', 'fontSize': 'small'}),
+                        ])
+                    ])
+                ], width=12, md=4),
+
+                # PCP Plot Column
+                dbc.Col(dcc.Loading(
+                    id="loading-pcp-plot",
+                    type="circle",
+                    children=[dcc.Graph(id='pcp-graph')] # Wrap initial graph in loading
+                ), width=12, md=8),
             ]),
 
         ], width=12, lg=8),
@@ -925,6 +963,182 @@ def generate_heatmap_plot(
 
     total_time = time.time() - start_time
     logging.info(f"Total heatmap generation time: {total_time:.2f}s")
+
+    return [dcc.Graph(figure=fig)], status
+
+
+# Callback to update PCP total points info text
+@app.callback(
+    Output('pcp-total-points-info', 'children'),
+    Input('pcp-points-slider', 'value')
+)
+def update_pcp_total_points_info(points_per_dim):
+    if points_per_dim:
+        total_points = int(points_per_dim) ** 4
+        return f"Total points to calculate: {points_per_dim}⁴ = {total_points}"
+    return ""
+
+
+# Callback to generate Parallel Coordinates Plot
+@app.callback(
+    Output('loading-pcp-plot', 'children'),
+    Output('pcp-calculation-status', 'children'),
+    Input('generate-pcp-button', 'n_clicks'),
+    State('pcp-points-slider', 'value'),
+    State('original-image-store', 'data'),
+    State('loss-config-store', 'data'),
+    prevent_initial_call=True,
+)
+def generate_pcp_plot(n_clicks, points_per_dim, stored_image_data, loss_config):
+    start_time = time.time()
+    status = ""
+    placeholder_fig = go.Figure().update_layout(
+        title="Adjust Settings and Click 'Generate Plot'",
+        # Provide dummy axes to avoid empty look
+        xaxis={'visible': False},
+        yaxis={'visible': False}
+    )
+    param_name_map = dict(zip(param_ids, param_names))
+
+    if not all([n_clicks, points_per_dim, stored_image_data, loss_config]):
+        logging.warning("PCP plot called without necessary inputs.")
+        return [dcc.Graph(figure=placeholder_fig)], "Missing inputs."
+
+    try:
+        n_points = int(points_per_dim)
+        if n_points < 2:
+            n_points = 2
+        total_points = n_points ** 4
+    except (ValueError, TypeError):
+         logging.error(f"Invalid points per dimension value: {points_per_dim}")
+         error_fig = go.Figure().update_layout(title="Invalid points per dimension.")
+         return [dcc.Graph(figure=error_fig)], "Error: Invalid input."
+
+    # --- 1. Get Base Image and Config ---
+    try:
+        img_str = stored_image_data['image_b64']
+        img_pil = Image.open(io.BytesIO(base64.b64decode(img_str))).convert('RGB')
+        img_np_hwc = np.array(img_pil)
+        img_torch_orig_uint8 = torch.from_numpy(img_np_hwc).permute(2, 0, 1).byte()
+    except Exception as e:
+        logging.exception("Error decoding stored image for PCP:")
+        error_fig = go.Figure().update_layout(title=f"Error loading image: {e}")
+        return [dcc.Graph(figure=error_fig)], f"Error loading image: {e}"
+
+    internal_size = loss_config.get('size', DEFAULT_IMG_SIZE)
+    img_torch_internal_uint8 = resize(img_torch_orig_uint8, [internal_size, internal_size], antialias=True)
+    logging.info(f"PCP using internal image: {img_torch_internal_uint8.shape}")
+
+    try:
+        loss_func = ImageAestheticsLoss(
+            original_image=img_torch_internal_uint8,
+            k_levels=loss_config.get('k', DEFAULT_PYRAMID_LEVELS),
+            tone_u=loss_config.get('u', DEFAULT_TONE_U_PARAM),
+            tone_o=loss_config.get('o', DEFAULT_TONE_O_PARAM),
+            negate=True # We want the score
+        )
+    except Exception as e:
+        logging.exception("Error initializing loss function for PCP:")
+        error_fig = go.Figure().update_layout(title=f"Error initializing loss function: {e}")
+        return [dcc.Graph(figure=error_fig)], f"Loss function error: {e}"
+
+    # --- 2. Define Parameter Grid (4D) ---
+    grid_creation_start = time.time()
+    ranges = []
+    for p_id in param_ids:
+        bounds = param_bounds_map[p_id]
+        ranges.append(torch.linspace(bounds[0], bounds[1], steps=n_points))
+
+    # Create the 4D grid - meshgrid output order needs careful handling for flattening
+    # grid_b, grid_c, grid_s, grid_h = torch.meshgrid(ranges[0], ranges[1], ranges[2], ranges[3], indexing='ij')
+    # Instead of meshgrid which can be memory intensive for >2D, use itertools.product
+    import itertools
+    param_combinations = list(itertools.product(*ranges)) # List of tuples [(b0,c0,s0,h0), (b0,c0,s0,h1), ...]
+    param_combinations_torch = torch.tensor(param_combinations, dtype=torch.float32) # Shape (total_points, 4)
+    logging.info(f"Created parameter combinations tensor: {param_combinations_torch.shape}")
+
+    # Reshape for generate_image: (total_points, 1, 4)
+    param_batch = param_combinations_torch.unsqueeze(1)
+    logging.info(f"Grid creation time: {time.time() - grid_creation_start:.2f}s")
+
+    # --- 3. Calculate Scores (Vectorized) ---
+    calc_start = time.time()
+    all_scores = []
+    batch_size = 256 # Process in smaller batches to avoid OOM errors if total_points is large
+    try:
+        for i in range(0, total_points, batch_size):
+            batch_indices = slice(i, min(i + batch_size, total_points))
+            current_param_batch = param_batch[batch_indices]
+
+            # Generate modified images for the current batch
+            modified_images_batch_nq = generate_image(current_param_batch, img_torch_internal_uint8)
+            modified_images_batch = modified_images_batch_nq.squeeze(1) # (batch, C, H, W) float [0, 255]
+
+            # Compute metrics and scores for the current batch
+            sh, de, cl, to, co_metric = loss_func._compute_all_metrics(modified_images_batch) # (batch,)
+            other_metrics = torch.stack([de, cl, to, co_metric], dim=1) # (batch, 4)
+            mean_others = other_metrics.mean(dim=1) # (batch,)
+            scores = sh * mean_others # (batch,)
+            scores = torch.nan_to_num(scores, nan=-1.0, posinf=-1.0, neginf=-1.0) # Use -1 for invalid scores for PCP vis
+            all_scores.append(scores.cpu())
+            logging.info(f"Processed batch {i//batch_size + 1}/{(total_points + batch_size - 1)//batch_size}")
+
+        scores_flat = torch.cat(all_scores) # Shape (total_points,)
+
+    except Exception as e:
+        logging.exception(f"Error during batch score calculation for PCP (batch starting {i}):")
+        error_fig = go.Figure().update_layout(title=f"Error calculating scores: {e}")
+        return [dcc.Graph(figure=error_fig)], f"Calculation Error: {e}"
+
+    calc_time = time.time() - calc_start
+    logging.info(f"PCP score calculation took {calc_time:.2f}s for {total_points} points.")
+    status = f"Calculated {total_points} points in {calc_time:.2f}s."
+
+    # --- 4. Create Parallel Coordinates Plot ---
+    plot_start = time.time()
+
+    # Prepare dimensions for Parcoords
+    dimensions = []
+    # Add parameter dimensions
+    for i, p_id in enumerate(param_ids):
+        dimensions.append(dict(
+            range=param_bounds_map[p_id],
+            label=param_name_map[p_id],
+            values=param_combinations_torch[:, i].tolist() # Pass flattened values for this dim
+        ))
+    # Add score dimension
+    score_min, score_max = scores_flat.min().item(), scores_flat.max().item()
+    # Add a small buffer to range if min/max are close, handle NaN case where min/max might be -1
+    score_range_buffer = (score_max - score_min) * 0.05 if score_max > score_min else 0.1
+    score_range = [score_min - score_range_buffer, score_max + score_range_buffer]
+
+    dimensions.append(dict(
+        range=score_range,
+        label='Aesthetic Score',
+        values=scores_flat.tolist(),
+    ))
+
+    # Create the figure
+    fig = go.Figure(data=go.Parcoords(
+        line=dict(
+            color=scores_flat.tolist(), # Color lines by score
+            colorscale='viridis',      # Choose a colorscale
+            showscale=True,
+            cmin=score_min,
+            cmax=score_max,
+            colorbar=dict(title='Score')
+        ),
+        dimensions=dimensions
+    ))
+
+    fig.update_layout(
+        title=f"Parallel Coordinates Plot ({total_points} points)",
+        margin=dict(l=60, r=60, t=80, b=50), # Adjust margins for labels
+    )
+    logging.info(f"PCP figure creation time: {time.time() - plot_start:.2f}s")
+
+    total_time = time.time() - start_time
+    logging.info(f"Total PCP generation time: {total_time:.2f}s")
 
     return [dcc.Graph(figure=fig)], status
 
