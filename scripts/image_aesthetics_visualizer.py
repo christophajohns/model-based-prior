@@ -89,7 +89,6 @@ DEFAULT_IMG_SIZE = 64 # Size used for loss calculation (faster)
 MAX_DISPLAY_IMG_SIZE = 256 # Max size for display images
 # Use a default random image if none uploaded
 DEFAULT_ORIGINAL_IMAGE = (torch.rand(3, MAX_DISPLAY_IMG_SIZE, MAX_DISPLAY_IMG_SIZE) * 255).byte()
-HEATMAP_GRID_SIZE = 20 # Resolution for the 2D heatmap plot
 
 # Define bounds from the ImageAestheticsLoss class for sliders
 # B, C, S, H
@@ -255,6 +254,20 @@ app.layout = dbc.Container([
                     dbc.Label("Y-Axis Parameter:"),
                     dcc.Dropdown(id='heatmap-y-axis', options=param_options, value=param_ids[1], clearable=False),
                     html.Br(),
+
+                    # --- START: ADDED RESOLUTION SLIDER ---
+                    dbc.Label("Heatmap Resolution (Grid Size):"),
+                    dcc.Slider(
+                        id='heatmap-resolution-slider',
+                        min=5,        # Minimum sensible grid size
+                        max=50,       # Maximum sensible grid size (can increase, but >50 gets slow)
+                        step=5,       # Step size
+                        value=20,     # Default value (matches old constant)
+                        marks={i: str(i) for i in range(5, 51, 5)}, # Marks for clarity
+                        tooltip={"placement": "bottom", "always_visible": True}
+                    ),
+                    html.Br(), # Add some spacing
+                    
                     # Dynamically updated fixed value inputs
                     dbc.Row([
                          dbc.Col(dbc.Label("Fixed Param 1:", id='fixed-param-1-label'), width=6),
@@ -751,11 +764,13 @@ def update_fixed_param_inputs(x_axis_id, y_axis_id, cur_br, cur_co, cur_sa, cur_
     State('fixed-param-ids-store', 'data'), # Get the IDs of the fixed params
     State('original-image-store', 'data'),
     State('loss-config-store', 'data'),
+    State('heatmap-resolution-slider', 'value'), # <-- ADD THIS STATE
     prevent_initial_call=True,
 )
 def generate_heatmap_plot(
     n_clicks, x_id, y_id, fixed_val_1, fixed_val_2, fixed_ids_data,
-    stored_image_data, loss_config
+    stored_image_data, loss_config,
+    heatmap_resolution # <-- ADD THIS ARGUMENT
 ):
     start_time = time.time()
     status = ""
@@ -765,10 +780,22 @@ def generate_heatmap_plot(
     )
     param_name_map = dict(zip(param_ids, param_names))
 
+    # --- Validation (add heatmap_resolution check) ---
     if not all([n_clicks, x_id, y_id, fixed_val_1 is not None, fixed_val_2 is not None,
-                fixed_ids_data, stored_image_data, loss_config]):
+                fixed_ids_data, stored_image_data, loss_config,
+                heatmap_resolution is not None]): # <-- CHECK RESOLUTION
         logging.warning("Heatmap plot called without necessary inputs.")
         return [dcc.Graph(figure=placeholder_fig)], "Missing inputs."
+
+    # --- Ensure resolution is an integer ---
+    try:
+        heatmap_resolution = int(heatmap_resolution)
+        if heatmap_resolution < 2: # Enforce minimum practical size
+             heatmap_resolution = 2
+    except (ValueError, TypeError):
+        logging.error(f"Invalid heatmap resolution value received: {heatmap_resolution}")
+        error_fig = go.Figure().update_layout(title="Invalid heatmap resolution value.")
+        return [dcc.Graph(figure=error_fig)], "Error: Invalid resolution."
 
     if x_id == y_id:
          error_fig = go.Figure().update_layout(title="X and Y axes cannot be the same parameter.")
@@ -807,8 +834,8 @@ def generate_heatmap_plot(
     # --- 2. Define Parameter Grid ---
     x_bounds = param_bounds_map[x_id]
     y_bounds = param_bounds_map[y_id]
-    x_range = torch.linspace(x_bounds[0], x_bounds[1], steps=HEATMAP_GRID_SIZE)
-    y_range = torch.linspace(y_bounds[0], y_bounds[1], steps=HEATMAP_GRID_SIZE)
+    x_range = torch.linspace(x_bounds[0], x_bounds[1], steps=heatmap_resolution)
+    y_range = torch.linspace(y_bounds[0], y_bounds[1], steps=heatmap_resolution)
     grid_x, grid_y = torch.meshgrid(x_range, y_range, indexing='ij') # Output shape (GRID_SIZE, GRID_SIZE)
 
     # Flatten grids for batch processing
@@ -863,7 +890,7 @@ def generate_heatmap_plot(
         scores_flat = torch.nan_to_num(scores_flat, nan=0.0, posinf=0.0, neginf=0.0)
 
         # Reshape scores back into a 2D grid
-        scores_grid = scores_flat.reshape(HEATMAP_GRID_SIZE, HEATMAP_GRID_SIZE).cpu().numpy() # (GRID_SIZE, GRID_SIZE)
+        scores_grid = scores_flat.reshape(heatmap_resolution, heatmap_resolution).cpu().numpy() # (GRID_SIZE, GRID_SIZE)
 
     except Exception as e:
         logging.exception("Error during batch score calculation for heatmap:")
