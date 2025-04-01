@@ -18,4 +18,5 @@ dependencies:
     - python-dotenv
     - seaborn
     - dash
+    - dash-bootstrap-components
     - "fastapi[standard]"

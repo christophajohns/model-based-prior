@@ -9,7 +9,7 @@ description = "Prior injection techniques for Bayesian optimization."
 authors = [
     { name="Christoph A. Johns", email="cajohns@cs.au.dk" }
 ]
-dependencies = ["opencv-python", "ax-platform", "pymoo", "numpy==1.26", "tqdm", "pyiqa", "python-dotenv", "seaborn", "fastapi[standard]"]
+dependencies = ["opencv-python", "ax-platform", "pymoo", "numpy==1.26", "tqdm", "pyiqa", "python-dotenv", "seaborn", "dash", "dash-bootstrap-components", "fastapi[standard]"]
 readme = "README.md"
 license = {file = "LICENSE"}
 
