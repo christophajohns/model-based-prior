@@ -11,7 +11,7 @@ from modelbasedprior.objectives.image_aesthetics.domain_transform_filter import 
 
 # Constants from the paper or reasonable defaults
 DEFAULT_PYRAMID_LEVELS = 8
-DOMAIN_TRANSFORM_ITERATIONS = 3
+DOMAIN_TRANSFORM_ITERATIONS = 5
 DEFAULT_TONE_U_PARAM = 0.05
 DEFAULT_TONE_O_PARAM = 0.05
 DEFAULT_NUM_INIT_SAMPLES = 32 # Number of Sobol/random samples for range estimation
@@ -22,7 +22,7 @@ EPS = 1e-6
 def _compute_pyramid_and_details(
     img_norm: torch.Tensor, 
     k_levels: int = 8,
-    domain_transform_iterations: int = 3,
+    domain_transform_iterations: int = 5,
 ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
     """
     Computes a Domain Transform pyramid and corresponding detail layers.
@@ -71,7 +71,7 @@ def _compute_focus_map(
     original_image: torch.Tensor,
     detail_filter_sigma_s: float = 60.0,
     detail_filter_sigma_r: float = 0.4,
-    detail_filter_iterations: int = 3,
+    detail_filter_iterations: int = 5,
     epsilon: float = EPS
 ) -> Tuple[List[torch.Tensor], torch.Tensor, torch.Tensor]:
     r"""
@@ -509,7 +509,7 @@ class ImageAestheticsLoss(SyntheticTestFunction):
         _pyramid_lp, detail_d = _compute_pyramid_and_details(img_norm, self._k_levels, self._domain_transform_iterations)
         # Multi-scale contrast C = sum(|D^k|) over k=1..K
         contrast_c = torch.stack(detail_d, dim=0).sum(dim=0) # (B, C, H, W)
-        focus_map_f, fif, foof = _compute_focus_map(detail_d, img_norm)
+        focus_map_f, fif, foof = _compute_focus_map(detail_d, img_norm, detail_filter_iterations=self._domain_transform_iterations)
         luminance_l = rgb_to_grayscale(img_norm, num_output_channels=1) # (B, 1, H, W)
 
         # 3. Compute individual metrics
