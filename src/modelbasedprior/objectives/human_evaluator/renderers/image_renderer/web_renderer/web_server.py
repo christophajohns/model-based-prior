@@ -106,6 +106,35 @@ def generate_html(has_target_image: bool):
                 border-radius: 4px;
                 text-align: center;
             }
+                        
+            .rating-slider-container {
+                display: flex;
+                flex-direction: column; /* Stack label, slider, anchors */
+                align-items: center;
+                gap: 0.5rem; /* Space between elements */
+                width: 80%; /* Adjust width as needed */
+                margin: 0 auto; /* Center the container */
+            }
+
+            input[type="range"] {
+                width: 100%; /* Make slider take full container width */
+                cursor: pointer;
+            }
+
+            .slider-value {
+                font-weight: bold;
+                color: var(--accent-color);
+                min-width: 3em; /* Ensure space for "10.0" */
+                text-align: center;
+            }
+            
+            .slider-anchors {
+                display: flex;
+                justify-content: space-between;
+                width: 100%;
+                font-size: 0.9em;
+                color: #666;
+            }
             
             button {
                 background-color: var(--accent-color);
@@ -128,10 +157,26 @@ def generate_html(has_target_image: bool):
         </style>
         <script>
         document.addEventListener('DOMContentLoaded', function() {
-            document.querySelector('form').addEventListener('submit', function(e) {
+            const ratingSlider = document.getElementById('rating');
+            const ratingValueSpan = document.getElementById('ratingValue');
+
+            // Function to update the displayed value
+            function updateSliderValue() {
+                // Format to one decimal place
+                ratingValueSpan.textContent = parseFloat(ratingSlider.value).toFixed(2);
+            }
+
+            // Update value display when slider changes
+            ratingSlider.addEventListener('input', updateSliderValue);
+
+            // Initialize display value on load
+            updateSliderValue(); 
+
+            // Handle form submission via Fetch API
+            document.getElementById('ratingForm').addEventListener('submit', function(e) {
                 e.preventDefault();
-                const rating = document.getElementById('rating').value;
-                
+                const rating = ratingSlider.value; // Get value from slider
+
                 fetch('/submit', {
                     method: 'POST',
                     headers: {
@@ -142,8 +187,21 @@ def generate_html(has_target_image: bool):
                 .then(response => response.json())
                 .then(data => {
                     if (data.status === 'success') {
+                        // Disable form elements after submission
+                        ratingSlider.disabled = true;
+                        document.querySelector('button[type="submit"]').disabled = true;
+                        document.querySelector('button[type="submit"]').textContent = 'Submitted!';
+                        // Redirect to thank you page
                         window.location.replace('/thank-you');
+                    } else {
+                         // Handle potential errors (optional)
+                         console.error("Submission failed:", data);
+                         alert("Failed to submit rating. Please try again.");
                     }
+                })
+                .catch(error => {
+                    console.error("Error submitting rating:", error);
+                    alert("An error occurred. Please try again.");
                 });
             });
         });
@@ -164,9 +222,16 @@ def generate_html(has_target_image: bool):
                 </figure>
                 {% endif %}
             </div>
-            <form method="post">
-                <label for="rating">Enter rating (0.0-10.0; higher is better):</label>
-                <input type="number" id="rating" name="rating" min="0" max="10" step="0.1" required>
+            <form method="post" id="ratingForm">
+                <div class="rating-slider-container">
+                    <label for="rating">Adjust the slider to rate (0.0 = Low, 10.0 = High):</label>
+                    <span id="ratingValue" class="slider-value">5.0</span>
+                    <input type="range" id="rating" name="rating" min="0" max="10" step="0.01" value="5.0" required>
+                    <div class="slider-anchors">
+                        <span>0.0 (Low)</span>
+                        <span>10.0 (High)</span>
+                    </div>
+                </div>
                 <button type="submit">Submit Rating</button>
             </form>
         </div>
