@@ -2,7 +2,7 @@ import torch
 from typing import List, Optional, Tuple
 
 from botorch.test_functions.synthetic import SyntheticTestFunction
-from botorch.utils.transforms import unnormalize
+from botorch.utils.transforms import normalize, unnormalize
 from torchvision.transforms.functional import rgb_to_grayscale
 
 from modelbasedprior.objectives.image_similarity import generate_image
@@ -49,7 +49,7 @@ def _compute_pyramid_and_details(
     for k in range(1, k_levels + 1):
         sigma = 2 ** (k + 1)
 
-        current_lp = rf_filter(img=last_lp, sigma_s=sigma, sigma_r=1.0, num_iterations=domain_transform_iterations, joint_image=last_lp)
+        current_lp = rf_filter(img=last_lp, sigma_s=sigma, sigma_r=1.0 if k < k_levels else float('inf'), num_iterations=domain_transform_iterations, joint_image=last_lp)
 
         pyramid_lp.append(current_lp)
         detail = torch.abs(last_lp - current_lp)
@@ -65,51 +65,104 @@ def _compute_pyramid_and_details(
 
 
 def _compute_focus_map(
-    detail_d: List[torch.Tensor]
+    detail_d: List[torch.Tensor],
+    original_image: torch.Tensor,
+    detail_filter_sigma_s: float = 60.0,
+    detail_filter_sigma_r: float = 0.4,
+    detail_filter_iterations: int = 3,
+    epsilon: float = EPS
 ) -> Tuple[List[torch.Tensor], torch.Tensor, torch.Tensor]:
-    """
-    Computes the focus map levels and in/out-of-focus masks.
+    r"""
+    Computes focus map levels F^k and in/out-of-focus masks (Fif, Foof).
 
-    Simplified: Focus map F^k is just the detail layer D^k.
-    In-focus F^if is where F^1 (D^1) is large.
+    This version implements the precise method described in Aydin et al. 2015,
+    Sec 5.2 & Eq. (3), intended as a higher-fidelity replacement for simpler
+    approximations. It requires filtering detail layers using the original image
+    as guidance and performs sequential level assignment based on magnitude dominance.
 
     Args:
-        detail_d: List of detail layers [D^1, ..., D^K].
+        detail_d: List of K detail layers [D^1, ..., D^K] (B, C, H, W each),
+                  output from a pyramid decomposition function (e.g., using rf_filter).
+        original_image: The input RGB image (B, C, H, W), normalized [0, 1]. Crucial
+                        for guiding the filtering of detail layers (joint_image).
+        detail_filter_sigma_s: Spatial sigma for the rf_filter step transforming D^k to \hat{D}^k.
+        detail_filter_sigma_r: Range sigma for the rf_filter step transforming D^k to \hat{D}^k.
+        detail_filter_iterations: Number of iterations for the rf_filter step.
+        epsilon: Small value for comparing magnitudes against zero.
 
     Returns:
         Tuple containing:
-        - List[F]: Focus map levels [F^1, ..., F^K] (same as detail_d here).
-        - Fif: Binary mask for in-focus region (B, 1, H, W).
-        - Foof: Binary mask for out-of-focus region (B, 1, H, W).
+        - focus_map_f: List[F^1, ..., F^K] (B, C, H, W each). Contains filtered detail
+                       values (\hat{D}^k) assigned based on dominance.
+        - fif_mask: Boolean mask for in-focus region (B, 1, H, W), where |F^1| > epsilon.
+        - foof_mask: Boolean mask for out-of-focus region (B, 1, H, W).
+
+    Raises:
+        ValueError: If detail_d list is empty.
     """
-    focus_map_f = detail_d # Simplified: F^k = D^k
-    f1 = focus_map_f[0] # Detail layer D1 (B, C, H, W)
+    if not detail_d:
+        raise ValueError("Input detail list 'detail_d' cannot be empty.")
 
-    # Determine in-focus based on magnitude of D1 (e.g., mean over channels)
-    # Use grayscale version of f1 for thresholding to make it channel-independent?
-    # Or simply use max over channel dim? Let's use mean.
-    f1_magnitude = f1.mean(dim=1, keepdim=True) # (B, 1, H, W)
+    num_detail_layers = len(detail_d) # K
+    B, C, H, W = detail_d[0].shape
+    device = detail_d[0].device
 
-    # Define in-focus as pixels with high magnitude in F1/D1
-    # Use a quantile, e.g., top 20% brightest pixels in F1 magnitude map
-    # Flatten spatial dims for quantile calculation
-    b, _, h, w = f1_magnitude.shape
-    f1_flat = f1_magnitude.view(b, -1)
-    # Ensure quantile value is computed per image in batch
-    # Use try-except for quantile in case some images are constant
-    try:
-        # quantile requires float, ensure f1_flat is float
-        thresholds = torch.quantile(f1_flat.float(), 0.8, dim=1, keepdim=True) # (B, 1)
-    except RuntimeError as e:
-        # Likely "quantile() input tensor is too large" or similar, use mean instead
-        print(f"Warning: Quantile failed ({e}), using mean as threshold.")
-        thresholds = f1_flat.mean(dim=1, keepdim=True) # (B, 1)
+    # 1. Filter D^k -> \hat{D}^k using original image as guidance in rf_filter
+    detail_d_hat = []
+    for d_k in detail_d:
+        d_hat_k = rf_filter(
+            img=d_k,
+            sigma_s=detail_filter_sigma_s,
+            sigma_r=detail_filter_sigma_r,
+            num_iterations=detail_filter_iterations,
+            joint_image=original_image
+        )
+        detail_d_hat.append(d_hat_k)
 
-    thresholds = thresholds.view(b, 1, 1, 1) # Reshape for broadcasting (B, 1, 1, 1)
-    fif = (f1_magnitude >= thresholds).bool() # (B, 1, H, W)
-    foof = ~fif # (B, 1, H, W)
+    # 2. Compute Focus Map Levels F^k via sequential dominance assignment
+    focus_map_f = [torch.zeros_like(d) for d in detail_d_hat]
+    # Mask tracking pixels not yet assigned to a focus level
+    active_pixel_mask = torch.ones(B, 1, H, W, dtype=torch.bool, device=device)
 
-    return focus_map_f, fif, foof
+    # Compare levels k and k+1 (indices 0 to K-2)
+    for k_idx in range(num_detail_layers - 1):
+        d_hat_k = detail_d_hat[k_idx]
+        d_hat_k_plus_1 = detail_d_hat[k_idx + 1]
+
+        # Compare mean absolute magnitude across channels
+        mag_k = torch.abs(d_hat_k).mean(dim=1, keepdim=True)
+        mag_k_plus_1 = torch.abs(d_hat_k_plus_1).mean(dim=1, keepdim=True)
+        k_dominates_mask = (mag_k > mag_k_plus_1 + epsilon) # Add epsilon for robustness
+
+        # Pixels assigned to F^k are those active AND where k dominates k+1
+        assign_to_fk_mask = active_pixel_mask & k_dominates_mask
+
+        # Assign values from \hat{D}^k to F^k
+        focus_map_f[k_idx] = torch.where(
+            assign_to_fk_mask.expand(-1, C, -1, -1), d_hat_k, focus_map_f[k_idx]
+        )
+
+        # Deactivate pixels that were just assigned
+        active_pixel_mask = active_pixel_mask & (~assign_to_fk_mask)
+
+    # Assign remaining active pixels to the last level F^K
+    if num_detail_layers > 0:
+        k_idx_last = num_detail_layers - 1
+        focus_map_f[k_idx_last] = torch.where(
+            active_pixel_mask.expand(-1, C, -1, -1),
+            detail_d_hat[k_idx_last],
+            focus_map_f[k_idx_last]
+        )
+
+    # 3. Compute In-focus mask Fif based on |F^1| > epsilon
+    f1 = focus_map_f[0]
+    fif_mask = (torch.abs(f1).mean(dim=1, keepdim=True) > epsilon)
+
+    # 4. Compute Out-of-focus mask Foof
+    foof_mask = ~fif_mask
+
+    # Ensure boolean return type matches original simplified function's intent
+    return focus_map_f, fif_mask, foof_mask
 
 def _compute_sharpness(f1: torch.Tensor) -> torch.Tensor:
     """Eq: Ψ_sh = μ(|F¹|)"""
@@ -117,11 +170,62 @@ def _compute_sharpness(f1: torch.Tensor) -> torch.Tensor:
     # Take mean over spatial dims (H, W) and channels (C)
     return f1.mean(dim=(-1, -2, -3)) # (B,)
 
-def _compute_depth(focus_map_f: List[torch.Tensor]) -> torch.Tensor:
-    """Eq: Ψ_de = argmax_k [Σ(F^k > 0)] for k = [2, K]
-       Simplified: argmax_k [ mean(F^k) ] for k = [2, K] """
-    if len(focus_map_f) < 2:
-        return torch.zeros(focus_map_f[0].shape[0], device=focus_map_f[0].device) # Return 0 if no levels k>=2
+def _compute_depth(
+    focus_map_f: List[torch.Tensor],
+    epsilon: float = EPS
+) -> torch.Tensor:
+    """
+    Computes the Depth aesthetic attribute Ψ_de based on Aydin et al. 2015, Table 1.
+
+    Ψ_de = argmax_k [Area(F^k)] for k = [2, K]
+    Calculates the area for each focus map level F^k (k>=2) and returns the
+    level k corresponding to the largest area.
+
+    Args:
+        focus_map_f: List of K focus map levels [F^1, ..., F^K] computed by
+                     the precise `_compute_focus_map` function.
+        epsilon: Small value for comparing magnitudes against zero when calculating area.
+
+    Returns:
+        depth_level: Tensor (B,) containing the level index k (in range [2, K])
+                     that maximizes the non-zero area per image. Returns 0.0 if
+                     fewer than 2 focus map levels exist. Float tensor.
+
+    Raises:
+        ValueError: If focus_map_f list is empty.
+    """
+    num_focus_levels = len(focus_map_f) # K
+
+    # Need at least F^1 and F^2 to compute depth for k>=2
+    if num_focus_levels < 2:
+        if not focus_map_f:
+             raise ValueError("Focus map list 'focus_map_f' is empty.")
+        # Return default depth 0 if only F^1 exists
+        return torch.zeros(focus_map_f[0].shape[0], dtype=torch.float, device=focus_map_f[0].device)
+
+    # Calculate area (pixel count > epsilon) for levels k=2 to K
+    areas_k2_to_K = []
+    # Iterate over focus maps F^2 to F^K (indices 1 to K-1)
+    for k_idx in range(1, num_focus_levels):
+        fk = focus_map_f[k_idx] # This is F^{k_idx+1}
+
+        # Area is the count of pixels where mean abs magnitude > epsilon
+        non_zero_mask = (torch.abs(fk).mean(dim=1, keepdim=True) > epsilon)
+        # Sum over H, W, and channel dims to get count per batch element
+        area = torch.sum(non_zero_mask, dim=(-1, -2, -3)) # Shape (B,)
+        areas_k2_to_K.append(area)
+
+    # Stack areas for levels k=2..K -> shape (K-1, B)
+    stacked_areas = torch.stack(areas_k2_to_K, dim=0)
+
+    # Find index (0 to K-2) corresponding to max area within levels k=2..K
+    max_area_relative_idx = torch.argmax(stacked_areas, dim=0) # Shape (B,)
+
+    # Convert relative index back to actual level k (index 0 -> k=2, etc.)
+    # Resulting levels are in the range [2, K]
+    depth_level = max_area_relative_idx + 2
+
+    return depth_level.float()
 
     means = []
     # Iterate from k=2 up to K (index 1 to K-1 in the list)
@@ -295,6 +399,62 @@ class ImageAestheticsLoss(SyntheticTestFunction):
         self._tone_o = tone_o
         self._domain_transform_iterations = domain_transform_iterations
         # Note: _optimizers and _optimal_value are typically omitted for non-analytic functions
+        self._metric_ranges = self._estimate_metric_ranges()
+
+    @torch.no_grad() # Disable gradients for estimation
+    def _estimate_metric_ranges(self) -> dict:
+        """Estimates min/max for each metric based on boundary parameter values."""
+        # Define parameter points for estimation: neutral + min/max for each dim
+        bounds = self.bounds.T
+        b_min, b_max = bounds[0]
+        c_min, c_max = bounds[1]
+        s_min, s_max = bounds[2]
+        h_min, h_max = bounds[3]
+
+        X_est_list = [
+            # Neutral
+            [1.0, 1.0, 1.0, 0.0],
+            # Brightness extremes
+            [b_min, 1.0, 1.0, 0.0], [b_max, 1.0, 1.0, 0.0],
+            # Contrast extremes
+            [1.0, c_min, 1.0, 0.0], [1.0, c_max, 1.0, 0.0],
+            # Saturation extremes
+            [1.0, 1.0, s_min, 0.0], [1.0, 1.0, s_max, 0.0],
+            # Hue extremes
+            [1.0, 1.0, 1.0, h_min], [1.0, 1.0, 1.0, h_max],
+        ]
+        X_est = torch.tensor(X_est_list, device=self._original_image.device)
+        X_est = X_est.unsqueeze(1) # Shape (num_points, 1, d)
+
+        # Generate images
+        est_images_nq = generate_image(X_est, self._original_image) # (num_points, 1, C, H, W)
+        est_images_flat = est_images_nq.flatten(0, 1) # (num_points, C, H, W)
+
+        # Compute metrics
+        sh_vals, de_vals, cl_vals, to_vals, co_vals = self._compute_all_metrics(est_images_flat)
+
+        # Helper to get min/max, handling single values or NaNs
+        def get_range(vals):
+            if vals.numel() == 0 or torch.isnan(vals).all():
+                return 0.0, 1.0 # Default range if empty or all NaN
+            valid_vals = vals[~torch.isnan(vals)]
+            if valid_vals.numel() == 0:
+                 return 0.0, 1.0 # Default if only NaNs remain
+            min_v = torch.min(valid_vals).item()
+            max_v = torch.max(valid_vals).item()
+            # Ensure min != max for division later
+            if abs(max_v - min_v) < EPS:
+                max_v += EPS
+            return min_v, max_v
+
+        ranges = {
+            "sharpness": get_range(sh_vals),
+            "depth": get_range(de_vals),
+            "clarity": get_range(cl_vals),
+            "tone": get_range(to_vals),
+            "colorfulness": get_range(co_vals),
+        }
+        return ranges
 
     def _compute_all_metrics(self, image_batch: torch.Tensor) -> Tuple[torch.Tensor, ...]:
         """Compute all raw aesthetic metrics for a batch of images."""
@@ -305,7 +465,7 @@ class ImageAestheticsLoss(SyntheticTestFunction):
         _pyramid_lp, detail_d = _compute_pyramid_and_details(img_norm, self._k_levels, self._domain_transform_iterations)
         # Multi-scale contrast C = sum(|D^k|) over k=1..K
         contrast_c = torch.stack(detail_d, dim=0).sum(dim=0) # (B, C, H, W)
-        focus_map_f, fif, foof = _compute_focus_map(detail_d)
+        focus_map_f, fif, foof = _compute_focus_map(detail_d, img_norm)
         luminance_l = rgb_to_grayscale(img_norm, num_output_channels=1) # (B, 1, H, W)
 
         # 3. Compute individual metrics
@@ -320,7 +480,64 @@ class ImageAestheticsLoss(SyntheticTestFunction):
         # based on expected ranges. Without calibration data (Sec 5.3), this
         # is ad-hoc.
 
+        # return torch.ones_like(sharpness), torch.zeros_like(depth), torch.zeros_like(clarity), torch.zeros_like(tone), torch.zeros_like(colorfulness)
         return sharpness, depth, clarity, tone, colorfulness
+    
+    def _normalize_metrics(
+        self,
+        sharpness_raw: torch.Tensor,
+        depth_raw: torch.Tensor,
+        clarity_raw: torch.Tensor,
+        tone_raw: torch.Tensor,
+        colorfulness_raw: torch.Tensor,
+    ):
+        """
+        Normalizes the image aesthetics metrics using the output ranges
+        identified during initialization.
+
+        Args:
+            sharpness_raw: Tensor of shape (n, q, 1) or (b, 1). Values expected in
+               original (unnormalized) space.
+            depth_raw: Tensor of shape (n, q, 1) or (b, 1). Values expected in
+               original (unnormalized) space.
+            clarity_raw: Tensor of shape (n, q, 1) or (b, 1). Values expected in
+               original (unnormalized) space.
+            tone_raw: Tensor of shape (n, q, 1) or (b, 1). Values expected in
+               original (unnormalized) space.
+            colorfulness_raw: Tensor of shape (n, q, 1) or (b, 1). Values expected in
+               original (unnormalized) space.
+
+        Returns:
+            normalized_sharpness: Tensor of shape (n, q, 1) if sharpness_raw was
+                (n, q, 1) or (b, 1) if sharpness_raw was (b, 1). Normalized using
+                the output range estimated during initialization.
+            normalized_depth: Tensor of shape (n, q, 1) if depth_raw was
+                (n, q, 1) or (b, 1) if depth_raw was (b, 1). Normalized using
+                the output range estimated during initialization.
+            normalized_clarity: Tensor of shape (n, q, 1) if clarity_raw was
+                (n, q, 1) or (b, 1) if clarity_raw was (b, 1). Normalized using
+                the output range estimated during initialization.
+            normalized_tone: Tensor of shape (n, q, 1) if tone_raw was
+                (n, q, 1) or (b, 1) if tone_raw was (b, 1). Normalized using
+                the output range estimated during initialization.
+            normalized_colorfulness: Tensor of shape (n, q, 1) if colorfulness_raw was
+                (n, q, 1) or (b, 1) if colorfulness_raw was (b, 1). Normalized using
+                the output range estimated during initialization.
+        """
+        def normalize_metric(val, key):
+            min_v, max_v = self._metric_ranges[key]
+            # Handle NaNs before normalization
+            val_nan_handled = torch.nan_to_num(val, nan=(min_v + max_v) / 2.0) # Replace NaN with mid-range
+            # Normalize: (value - min) / (max - min)
+            return normalize(val_nan_handled, torch.tensor([[min_v], [max_v]]))
+
+        sh_norm = normalize_metric(sharpness_raw, "sharpness")
+        de_norm = normalize_metric(depth_raw, "depth")
+        cl_norm = normalize_metric(clarity_raw, "clarity")
+        to_norm = normalize_metric(tone_raw, "tone")
+        co_norm = normalize_metric(colorfulness_raw, "colorfulness")
+
+        return sh_norm, de_norm, cl_norm, to_norm, co_norm
     
     def evaluate_true(self, X: torch.Tensor) -> torch.Tensor:
         """
@@ -352,14 +569,20 @@ class ImageAestheticsLoss(SyntheticTestFunction):
         candidate_images_flat = candidate_images_nq.flatten(0, 1)
 
         # Compute all metrics for the batch
-        sh, de, cl, to, co = self._compute_all_metrics(candidate_images_flat)
+        sh_raw, de_raw, cl_raw, to_raw, co_raw = self._compute_all_metrics(candidate_images_flat)
         # sh, de, cl, to, co are all tensors of shape (b,) where b = n*q
 
-        # Combine metrics using Eq. 4 structure to get aesthetic score
-        other_metrics = torch.stack([de, cl, to, co], dim=1) # (n*q, 4)
-        mean_others = other_metrics.mean(dim=1) # (n*q,)
-        score = sh * mean_others # (n*q,)
-        score = torch.nan_to_num(score, nan=0.0, posinf=0.0, neginf=0.0)
+        # Normalize using estimated output ranges
+        sh_norm, de_norm, cl_norm, to_norm, co_norm = self._normalize_metrics(
+            sh_raw, de_raw, cl_raw, to_raw, co_raw
+        )
+
+        # Combine *normalized* metrics using Eq. 4 structure to get aesthetic score
+        other_metrics_norm = torch.stack([de_norm, cl_norm, to_norm, co_norm], dim=1) # (n*q, 4)
+        mean_others_norm = other_metrics_norm.mean(dim=1) # (n*q,)
+        # Use normalized sharpness
+        score = sh_norm * mean_others_norm # (n*q,)
+        score = torch.nan_to_num(score, nan=0.0, posinf=0.0, neginf=0.0) # Handled by normalization/clamping now
 
         # Convert score to loss
         loss = -score # (n*q,)
@@ -452,7 +675,8 @@ if __name__ == "__main__":
     print("\nDirect Metric Computation Test:")
     test_batch_img = test_image_uint8.unsqueeze(0).float()
     # Need instance to call _compute_all_metrics
-    metrics = image_aesthetics_loss._compute_all_metrics(test_batch_img)
+    metrics_raw = image_aesthetics_loss._compute_all_metrics(test_batch_img)
+    metrics = image_aesthetics_loss._normalize_metrics(*metrics_raw)
     metric_names = ["Sharpness", "Depth", "Clarity", "Tone", "Colorfulness"]
     print("Raw metrics for original image:")
     for name, val in zip(metric_names, metrics):
