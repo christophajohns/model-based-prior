@@ -27,6 +27,8 @@ OPTIMAL_CONFIGURATION = None # (0.8, 1.2, 1.2, 0.1)  # brightness, contrast, sat
 SEED = 23489
 NUM_TRIALS = 5
 NUM_INITIAL_SAMPLES = 4
+IAL_K_LEVELS = 6  # Image Aesthetics Loss K-levels (original: 8; smaller is faster)
+IAL_ITERATIONS = 3  # Image Aesthetics Loss Domain Transform Filter Iterations (original: 5; smaller is faster)
 
 
 # Helper functions
@@ -82,7 +84,7 @@ original_image = read_image(ORIGINAL_IMAGE_PATH)
 downsampled_original_image = resize(original_image, 64)
 
 if OPTIMAL_CONFIGURATION is None:
-    prior_predict_func = ImageAestheticsLoss(original_image=downsampled_original_image, negate=True)
+    prior_predict_func = ImageAestheticsLoss(original_image=downsampled_original_image, negate=True, k_levels=IAL_K_LEVELS, domain_transform_iterations=IAL_ITERATIONS)
 else:
     prior_predict_func = ImageSimilarityLoss(original_image=downsampled_original_image, optimizer=OPTIMAL_CONFIGURATION, weight_psnr=0.5, weight_ssim=0.5, negate=True)
 

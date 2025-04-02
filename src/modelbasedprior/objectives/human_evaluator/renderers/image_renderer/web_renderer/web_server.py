@@ -293,6 +293,7 @@ def thank_you_page():
         <div class="container">
             <h2>Thank you for submitting your rating!</h2>
             <p>Waiting for the next image...</p>
+            <p>This can take up to 5 minutes.</p>
         </div>
     </body>
     </html>

@@ -406,99 +406,97 @@ class ImageAestheticsLoss(SyntheticTestFunction):
         self._domain_transform_iterations = domain_transform_iterations
         self._num_init_samples = num_init_samples
         # Note: _optimizers and _optimal_value are typically omitted for non-analytic functions
-        self._metric_ranges = self._estimate_metric_ranges()
+        self._metric_stats = self._estimate_metric_stats()
 
     @torch.no_grad() # Disable gradients for estimation
-    def _estimate_metric_ranges(self) -> dict:
+    def _estimate_metric_stats(self) -> dict:
         """
-        Estimates min/max for each metric by sampling parameter space.
-
-        Uses Sobol sequences (if available) or random sampling, combined with
-        parameter extremes, to get a better estimate of output ranges.
+        Estimates statistics (median, IQR) for each metric by sampling
+        the parameter space. These stats are used for sigmoid normalization
+        for all metrics except 'depth'.
         """
         device = self._original_image.device
         dtype = torch.float32 # Use float for parameters
 
-        # 1. Define parameter points for estimation: neutral + min/max for each dim
-        bounds_t = self.bounds.t().to(device=device, dtype=dtype) # Tensor shape (d, 2)
+        # 1. Define parameter points for estimation (same as before)
+        bounds_t = self.bounds.t().to(device=device, dtype=dtype)
         b_min, b_max = bounds_t[0]
         c_min, c_max = bounds_t[1]
         s_min, s_max = bounds_t[2]
         h_min, h_max = bounds_t[3]
 
         X_extreme_list = [
-            # Neutral
-            [1.0, 1.0, 1.0, 0.0],
-            # Brightness extremes
-            [b_min, 1.0, 1.0, 0.0], [b_max, 1.0, 1.0, 0.0],
-            # Contrast extremes
-            [1.0, c_min, 1.0, 0.0], [1.0, c_max, 1.0, 0.0],
-            # Saturation extremes
-            [1.0, 1.0, s_min, 0.0], [1.0, 1.0, s_max, 0.0],
-            # Hue extremes
-            [1.0, 1.0, 1.0, h_min], [1.0, 1.0, 1.0, h_max],
-            # Corner cases (optional, but might capture interactions)
+            [1.0, 1.0, 1.0, 0.0], [b_min, 1.0, 1.0, 0.0], [b_max, 1.0, 1.0, 0.0],
+            [1.0, c_min, 1.0, 0.0], [1.0, c_max, 1.0, 0.0], [1.0, 1.0, s_min, 0.0],
+            [1.0, 1.0, s_max, 0.0], [1.0, 1.0, 1.0, h_min], [1.0, 1.0, 1.0, h_max],
             [b_min, c_min, s_min, h_min], [b_max, c_max, s_max, h_max]
         ]
         X_extreme = torch.tensor(X_extreme_list, device=device, dtype=dtype)
 
-        # 2. Generate Sobol or random samples in normalized space [0, 1]^d
+        # 2. Generate Sobol or random samples (same as before)
         if self._num_init_samples > 0:
             X_norm_samples = draw_sobol_samples(
                 bounds=torch.tensor([[0.0] * self.dim, [1.0] * self.dim], device=device, dtype=dtype),
-                n=self._num_init_samples,
-                q=1, # Generate n points each of q=1
-                seed=torch.randint(10000, (1,)).item() # Random seed for Sobol
-            ).squeeze(1) # Shape (n, d)
-
-            # 3. Unnormalize samples to the parameter bounds
-            X_samples = unnormalize(X_norm_samples, bounds=self.bounds) # Uses self.bounds (List[Tuple])
-
-            # 4. Combine extreme points and sampled points
+                n=self._num_init_samples, q=1,
+                seed=torch.randint(10000, (1,)).item()
+            ).squeeze(1)
+            X_samples = unnormalize(X_norm_samples, bounds=self.bounds)
             X_est = torch.cat([X_extreme, X_samples], dim=0)
         else:
-            X_est = X_extreme # Use only extremes if num_init_samples is 0
+            X_est = X_extreme
 
-        # Reshape to (num_points, 1, d) for generate_image
         X_est = X_est.unsqueeze(1) # Shape (num_points, 1, d)
 
-        # 5. Generate images (ensure original image is on correct device)
-        est_images_nq = generate_image(X_est, self._original_image.to(device)) # (num_points, 1, C, H, W)
+        # 3. Generate images (same as before)
+        est_images_nq = generate_image(X_est, self._original_image.to(device))
         est_images_flat = est_images_nq.flatten(0, 1) # (num_points, C, H, W)
 
-        # 6. Compute metrics for all generated images
+        # 4. Compute metrics (same as before)
         sh_vals, de_vals, cl_vals, to_vals, co_vals = self._compute_all_metrics(est_images_flat)
 
-        # 7. Helper to get min/max, handling single values, NaNs, and ensuring range > EPS
-        def get_range(vals):
+        # 5. Helper to get median/IQR stats, handling NaNs/Infs and edge cases
+        def get_stats(vals: torch.Tensor) -> dict:
             if vals.numel() == 0:
-                 return 0.0, 1.0 # Default range if empty input tensor
-            valid_vals = vals[~torch.isnan(vals) & ~torch.isinf(vals)] # Filter NaNs and Infs
-            if valid_vals.numel() == 0:
-                 print(f"Warning: All values for a metric were NaN/Inf during range estimation. Using default range [0, 1].")
-                 return 0.0, 1.0 # Default if only NaNs/Infs remain
-            min_v = torch.min(valid_vals).item()
-            max_v = torch.max(valid_vals).item()
-            # Ensure min != max for division later
-            if abs(max_v - min_v) < EPS:
-                # Add small buffer if min/max are too close
-                min_v -= EPS / 2.0
-                max_v += EPS / 2.0
-                # Ensure they don't cross reasonable bounds (e.g., negative sharpness) if possible
-                min_v = max(0.0, min_v) if key in ["sharpness", "clarity", "colorfulness", "tone"] else min_v # Depth can be just K
-                max_v = max(min_v + EPS, max_v) # Ensure max > min
+                print(f"Warning: Empty tensor passed to get_stats. Using default stats (median=0.5, iqr=1.0).")
+                return {'median': 0.5, 'iqr': 1.0}
 
-            return min_v, max_v
+            valid_vals = vals[~torch.isnan(vals) & ~torch.isinf(vals)].flatten()
 
-        ranges = {}
+            if valid_vals.numel() < 2: # Need at least 2 points for IQR
+                print(f"Warning: < 2 valid values for metric during range estimation. Using default stats (median={valid_vals.mean().item() if valid_vals.numel() > 0 else 0.5}, iqr=1.0).")
+                median = valid_vals.mean().item() if valid_vals.numel() > 0 else 0.5
+                iqr = 1.0
+            else:
+                try:
+                    # Calculate quartiles
+                    q25, median_val, q75 = torch.quantile(
+                        valid_vals,
+                        torch.tensor([0.25, 0.5, 0.75], device=valid_vals.device, dtype=valid_vals.dtype)
+                    )
+                    median = median_val.item()
+                    iqr = (q75 - q25).item()
+                    # Ensure IQR is not too small to avoid division by zero in sigmoid scale
+                    if iqr < EPS:
+                        # print(f"Warning: Estimated IQR is near zero ({iqr}). Setting to {EPS}.")
+                        iqr = EPS
+                except RuntimeError as e:
+                     print(f"Warning: Quantile calculation failed during stats estimation ({e}). Using default stats (median=0.5, iqr=1.0).")
+                     median = 0.5
+                     iqr = 1.0
+
+            return {'median': median, 'iqr': iqr}
+
+        stats = {}
         metrics_data = {
+            # Compute stats for all, even if depth's aren't used for sigmoid
             "sharpness": sh_vals, "depth": de_vals, "clarity": cl_vals,
             "tone": to_vals, "colorfulness": co_vals
         }
         for key, vals in metrics_data.items():
-            ranges[key] = get_range(vals)
+            stats[key] = get_stats(vals)
+            # print(f"Estimated stats for {key}: {stats[key]}") # Debug print
 
-        return ranges
+        return stats
 
     def _compute_all_metrics(self, image_batch: torch.Tensor) -> Tuple[torch.Tensor, ...]:
         """Compute all raw aesthetic metrics for a batch of images."""
@@ -536,52 +534,79 @@ class ImageAestheticsLoss(SyntheticTestFunction):
         colorfulness_raw: torch.Tensor,
     ):
         """
-        Normalizes the image aesthetics metrics using the output ranges
-        identified during initialization.
+        Normalizes the image aesthetics metrics.
+        - 'depth' is normalized using theoretical bounds [0, K].
+        - Other metrics are normalized using a sigmoid function based on
+          median and IQR estimated during initialization.
 
         Args:
-            sharpness_raw: Tensor of shape (n, q, 1) or (b, 1). Values expected in
-               original (unnormalized) space.
-            depth_raw: Tensor of shape (n, q, 1) or (b, 1). Values expected in
-               original (unnormalized) space.
-            clarity_raw: Tensor of shape (n, q, 1) or (b, 1). Values expected in
-               original (unnormalized) space.
-            tone_raw: Tensor of shape (n, q, 1) or (b, 1). Values expected in
-               original (unnormalized) space.
-            colorfulness_raw: Tensor of shape (n, q, 1) or (b, 1). Values expected in
-               original (unnormalized) space.
+            sharpness_raw: Raw sharpness values.
+            depth_raw: Raw depth values.
+            clarity_raw: Raw clarity values.
+            tone_raw: Raw tone values.
+            colorfulness_raw: Raw colorfulness values.
 
         Returns:
-            normalized_sharpness: Tensor of shape (n, q, 1) if sharpness_raw was
-                (n, q, 1) or (b, 1) if sharpness_raw was (b, 1). Normalized using
-                the output range estimated during initialization.
-            normalized_depth: Tensor of shape (n, q, 1) if depth_raw was
-                (n, q, 1) or (b, 1) if depth_raw was (b, 1). Normalized using
-                the output range estimated during initialization.
-            normalized_clarity: Tensor of shape (n, q, 1) if clarity_raw was
-                (n, q, 1) or (b, 1) if clarity_raw was (b, 1). Normalized using
-                the output range estimated during initialization.
-            normalized_tone: Tensor of shape (n, q, 1) if tone_raw was
-                (n, q, 1) or (b, 1) if tone_raw was (b, 1). Normalized using
-                the output range estimated during initialization.
-            normalized_colorfulness: Tensor of shape (n, q, 1) if colorfulness_raw was
-                (n, q, 1) or (b, 1) if colorfulness_raw was (b, 1). Normalized using
-                the output range estimated during initialization.
+            Tuple of normalized tensors (sh_norm, de_norm, cl_norm, to_norm, co_norm),
+            each mapped approximately to the [0, 1] range.
         """
-        def normalize_metric(val, key):
-            min_v, max_v = self._metric_ranges[key]
-            # Handle NaNs before normalization
-            val_nan_handled = torch.nan_to_num(val, nan=(min_v + max_v) / 2.0) # Replace NaN with mid-range
-            # Normalize: (value - min) / (max - min)
-            return normalize(val_nan_handled, torch.tensor([[min_v], [max_v]]))
+        # Sigmoid scale factor (adjusts steepness, larger means steeper)
+        # A value of ~6 means the output goes from ~0.1 to ~0.9 over the IQR.
+        sigmoid_scale_factor = 6.0
 
-        sh_norm = normalize_metric(sharpness_raw, "sharpness")
-        de_norm = normalize_metric(depth_raw, "depth")
-        cl_norm = normalize_metric(clarity_raw, "clarity")
-        to_norm = normalize_metric(tone_raw, "tone")
-        co_norm = normalize_metric(colorfulness_raw, "colorfulness")
+        normalized_metrics = {}
+        raw_metrics = {
+            "sharpness": sharpness_raw, "depth": depth_raw, "clarity": clarity_raw,
+            "tone": tone_raw, "colorfulness": colorfulness_raw
+        }
 
-        return sh_norm, de_norm, cl_norm, to_norm, co_norm
+        for key, val_raw in raw_metrics.items():
+            if key == "depth":
+                # Use theoretical bounds [0, K] for depth normalization
+                # Note: _compute_depth returns 0 if K < 2, and [2, K] otherwise.
+                # Using [0, K] covers all cases.
+                min_val = 0.0
+                max_val = float(self._k_levels) # K
+                range_val = max_val - min_val
+
+                # Handle NaN before normalization (replace with min_val)
+                val_nan_handled = torch.nan_to_num(val_raw, nan=min_val)
+
+                if range_val < EPS:
+                    # If K=0 (or 1, making range=0 or 1), normalize to 0.5 or 0
+                    # Let's normalize to 0 if range is effectively zero
+                    normalized_val = torch.zeros_like(val_nan_handled)
+                else:
+                    # Apply min-max scaling
+                    normalized_val = (val_nan_handled - min_val) / range_val
+
+                # Clamp result explicitly to [0, 1] as a safety measure
+                normalized_metrics[key] = torch.clamp(normalized_val, 0.0, 1.0)
+
+            else:
+                # Use sigmoid normalization for other metrics
+                stats = self._metric_stats[key]
+                median = stats['median']
+                iqr = stats['iqr'] # Already ensured >= EPS during estimation
+
+                # Handle NaN before normalization (replace with median)
+                val_nan_handled = torch.nan_to_num(val_raw, nan=median)
+
+                # Calculate sigmoid scale `k` based on IQR
+                # k = sigmoid_scale_factor / iqr maps ~IQR range to steep part of sigmoid
+                k = sigmoid_scale_factor / iqr
+
+                # Apply sigmoid: sigmoid(k * (value - center))
+                normalized_val = torch.sigmoid(k * (val_nan_handled - median))
+                normalized_metrics[key] = normalized_val # Sigmoid naturally outputs [0, 1]
+
+        return (
+            normalized_metrics["sharpness"],
+            normalized_metrics["depth"],
+            normalized_metrics["clarity"],
+            normalized_metrics["tone"],
+            normalized_metrics["colorfulness"],
+        )
     
     def evaluate_true(self, X: torch.Tensor) -> torch.Tensor:
         """
