@@ -3,6 +3,7 @@ from typing import List, Optional, Tuple
 
 from botorch.test_functions.synthetic import SyntheticTestFunction
 from botorch.utils.transforms import normalize, unnormalize
+from botorch.utils.sampling import draw_sobol_samples
 from torchvision.transforms.functional import rgb_to_grayscale
 
 from modelbasedprior.objectives.image_similarity import generate_image
@@ -13,6 +14,7 @@ DEFAULT_PYRAMID_LEVELS = 8
 DOMAIN_TRANSFORM_ITERATIONS = 3
 DEFAULT_TONE_U_PARAM = 0.05
 DEFAULT_TONE_O_PARAM = 0.05
+DEFAULT_NUM_INIT_SAMPLES = 32 # Number of Sobol/random samples for range estimation
 # Small epsilon to avoid division by zero or log(0)
 EPS = 1e-6
 
@@ -370,6 +372,7 @@ class ImageAestheticsLoss(SyntheticTestFunction):
         tone_u: float = DEFAULT_TONE_U_PARAM,
         tone_o: float = DEFAULT_TONE_O_PARAM,
         domain_transform_iterations: int = DOMAIN_TRANSFORM_ITERATIONS,
+        num_init_samples: int = DEFAULT_NUM_INIT_SAMPLES,
         noise_std: Optional[float] = None,
         negate: bool = False, # Default False: Output is loss (lower is better)
         bounds: Optional[List[Tuple[float, float]]] = None,
@@ -380,6 +383,9 @@ class ImageAestheticsLoss(SyntheticTestFunction):
             k_levels: Number of pyramid levels (K) for metric calculation.
             tone_u: Underexposure parameter for the Tone metric.
             tone_o: Overexposure parameter for the Tone metric.
+            domain_transform_iterations: Number of iterations for the domain transform filter.
+            num_init_samples: Number of quasi-random (Sobol) or random samples
+                used to estimate metric output ranges during initialization.
             noise_std: Standard deviation of Gaussian noise added to the output.
             negate: If True, negate the loss output. Standard BoTorch use cases
                     for minimization typically leave this False.
@@ -398,20 +404,29 @@ class ImageAestheticsLoss(SyntheticTestFunction):
         self._tone_u = tone_u
         self._tone_o = tone_o
         self._domain_transform_iterations = domain_transform_iterations
+        self._num_init_samples = num_init_samples
         # Note: _optimizers and _optimal_value are typically omitted for non-analytic functions
         self._metric_ranges = self._estimate_metric_ranges()
 
     @torch.no_grad() # Disable gradients for estimation
     def _estimate_metric_ranges(self) -> dict:
-        """Estimates min/max for each metric based on boundary parameter values."""
-        # Define parameter points for estimation: neutral + min/max for each dim
-        bounds = self.bounds.T
-        b_min, b_max = bounds[0]
-        c_min, c_max = bounds[1]
-        s_min, s_max = bounds[2]
-        h_min, h_max = bounds[3]
+        """
+        Estimates min/max for each metric by sampling parameter space.
 
-        X_est_list = [
+        Uses Sobol sequences (if available) or random sampling, combined with
+        parameter extremes, to get a better estimate of output ranges.
+        """
+        device = self._original_image.device
+        dtype = torch.float32 # Use float for parameters
+
+        # 1. Define parameter points for estimation: neutral + min/max for each dim
+        bounds_t = self.bounds.t().to(device=device, dtype=dtype) # Tensor shape (d, 2)
+        b_min, b_max = bounds_t[0]
+        c_min, c_max = bounds_t[1]
+        s_min, s_max = bounds_t[2]
+        h_min, h_max = bounds_t[3]
+
+        X_extreme_list = [
             # Neutral
             [1.0, 1.0, 1.0, 0.0],
             # Brightness extremes
@@ -422,38 +437,67 @@ class ImageAestheticsLoss(SyntheticTestFunction):
             [1.0, 1.0, s_min, 0.0], [1.0, 1.0, s_max, 0.0],
             # Hue extremes
             [1.0, 1.0, 1.0, h_min], [1.0, 1.0, 1.0, h_max],
+            # Corner cases (optional, but might capture interactions)
+            [b_min, c_min, s_min, h_min], [b_max, c_max, s_max, h_max]
         ]
-        X_est = torch.tensor(X_est_list, device=self._original_image.device)
+        X_extreme = torch.tensor(X_extreme_list, device=device, dtype=dtype)
+
+        # 2. Generate Sobol or random samples in normalized space [0, 1]^d
+        if self._num_init_samples > 0:
+            X_norm_samples = draw_sobol_samples(
+                bounds=torch.tensor([[0.0] * self.dim, [1.0] * self.dim], device=device, dtype=dtype),
+                n=self._num_init_samples,
+                q=1, # Generate n points each of q=1
+                seed=torch.randint(10000, (1,)).item() # Random seed for Sobol
+            ).squeeze(1) # Shape (n, d)
+
+            # 3. Unnormalize samples to the parameter bounds
+            X_samples = unnormalize(X_norm_samples, bounds=self.bounds) # Uses self.bounds (List[Tuple])
+
+            # 4. Combine extreme points and sampled points
+            X_est = torch.cat([X_extreme, X_samples], dim=0)
+        else:
+            X_est = X_extreme # Use only extremes if num_init_samples is 0
+
+        # Reshape to (num_points, 1, d) for generate_image
         X_est = X_est.unsqueeze(1) # Shape (num_points, 1, d)
 
-        # Generate images
-        est_images_nq = generate_image(X_est, self._original_image) # (num_points, 1, C, H, W)
+        # 5. Generate images (ensure original image is on correct device)
+        est_images_nq = generate_image(X_est, self._original_image.to(device)) # (num_points, 1, C, H, W)
         est_images_flat = est_images_nq.flatten(0, 1) # (num_points, C, H, W)
 
-        # Compute metrics
+        # 6. Compute metrics for all generated images
         sh_vals, de_vals, cl_vals, to_vals, co_vals = self._compute_all_metrics(est_images_flat)
 
-        # Helper to get min/max, handling single values or NaNs
+        # 7. Helper to get min/max, handling single values, NaNs, and ensuring range > EPS
         def get_range(vals):
-            if vals.numel() == 0 or torch.isnan(vals).all():
-                return 0.0, 1.0 # Default range if empty or all NaN
-            valid_vals = vals[~torch.isnan(vals)]
+            if vals.numel() == 0:
+                 return 0.0, 1.0 # Default range if empty input tensor
+            valid_vals = vals[~torch.isnan(vals) & ~torch.isinf(vals)] # Filter NaNs and Infs
             if valid_vals.numel() == 0:
-                 return 0.0, 1.0 # Default if only NaNs remain
+                 print(f"Warning: All values for a metric were NaN/Inf during range estimation. Using default range [0, 1].")
+                 return 0.0, 1.0 # Default if only NaNs/Infs remain
             min_v = torch.min(valid_vals).item()
             max_v = torch.max(valid_vals).item()
             # Ensure min != max for division later
             if abs(max_v - min_v) < EPS:
-                max_v += EPS
+                # Add small buffer if min/max are too close
+                min_v -= EPS / 2.0
+                max_v += EPS / 2.0
+                # Ensure they don't cross reasonable bounds (e.g., negative sharpness) if possible
+                min_v = max(0.0, min_v) if key in ["sharpness", "clarity", "colorfulness", "tone"] else min_v # Depth can be just K
+                max_v = max(min_v + EPS, max_v) # Ensure max > min
+
             return min_v, max_v
 
-        ranges = {
-            "sharpness": get_range(sh_vals),
-            "depth": get_range(de_vals),
-            "clarity": get_range(cl_vals),
-            "tone": get_range(to_vals),
-            "colorfulness": get_range(co_vals),
+        ranges = {}
+        metrics_data = {
+            "sharpness": sh_vals, "depth": de_vals, "clarity": cl_vals,
+            "tone": to_vals, "colorfulness": co_vals
         }
+        for key, vals in metrics_data.items():
+            ranges[key] = get_range(vals)
+
         return ranges
 
     def _compute_all_metrics(self, image_batch: torch.Tensor) -> Tuple[torch.Tensor, ...]:

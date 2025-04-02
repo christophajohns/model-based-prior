@@ -559,7 +559,8 @@ def update_main_output(
         logging.info(f"Input to _compute_all_metrics: shape={img_batch_float_0_255.shape}, dtype={img_batch_float_0_255.dtype}, range=[{img_batch_float_0_255.min():.2f}, {img_batch_float_0_255.max():.2f}]")
 
         # Compute raw metrics using the loss function's internal method
-        sh, de, cl, to, co = loss_func._compute_all_metrics(img_batch_float_0_255) # Pass float [0, 255]
+        sh_raw, de_raw, cl_raw, to_raw, co_raw = loss_func._compute_all_metrics(img_batch_float_0_255) # Pass float [0, 255]
+        sh, de, cl, to, co = loss_func._normalize_metrics(sh_raw, de_raw, cl_raw, to_raw, co_raw)
 
         # Combine metrics for the final score (as done in ImageAestheticsLoss.evaluate_true)
         other_metrics = torch.stack([de, cl, to, co], dim=1) # (1, 4)
@@ -703,9 +704,10 @@ def generate_slice_plot(n_clicks, slice_param_id, stored_image_data, loss_config
             # Prepare batch: float [0, 255] -> add batch dim -> (1, C, H, W) float [0, 255]
             img_batch_float_0_255 = modified_img_internal_float.unsqueeze(0)
 
-            sh, de, cl, to, co_metric = loss_func._compute_all_metrics(img_batch_float_0_255) # Pass float [0, 255]
+            sh_raw, de_raw, cl_raw, to_raw, co_raw = loss_func._compute_all_metrics(img_batch_float_0_255) # Pass float [0, 255]
+            sh, de, cl, to, co = loss_func._normalize_metrics(sh_raw, de_raw, cl_raw, to_raw, co_raw)
 
-            other_metrics = torch.stack([de, cl, to, co_metric], dim=1)
+            other_metrics = torch.stack([de, cl, to, co], dim=1)
             mean_others = other_metrics.mean(dim=1)
             score = sh * mean_others
             score = torch.nan_to_num(score, nan=0.0, posinf=0.0, neginf=0.0)
@@ -944,9 +946,10 @@ def generate_heatmap_plot(
 
         # Compute metrics and scores for the entire batch
         # Input: (N*M, C, H, W) float [0, 255]
-        sh, de, cl, to, co_metric = loss_func._compute_all_metrics(modified_images_batch) # Outputs are (N*M,)
+        sh_raw, de_raw, cl_raw, to_raw, co_raw = loss_func._compute_all_metrics(modified_images_batch) # Outputs are (N*M,)
+        sh, de, cl, to, co = loss_func._normalize_metrics(sh_raw, de_raw, cl_raw, to_raw, co_raw)
 
-        other_metrics = torch.stack([de, cl, to, co_metric], dim=1) # (N*M, 4)
+        other_metrics = torch.stack([de, cl, to, co], dim=1) # (N*M, 4)
         mean_others = other_metrics.mean(dim=1) # (N*M,)
         scores_flat = sh * mean_others # (N*M,)
         scores_flat = torch.nan_to_num(scores_flat, nan=0.0, posinf=0.0, neginf=0.0)
@@ -1099,8 +1102,9 @@ def generate_pcp_plot(n_clicks, points_per_dim, stored_image_data, loss_config):
             modified_images_batch = modified_images_batch_nq.squeeze(1) # (batch, C, H, W) float [0, 255]
 
             # Compute metrics and scores for the current batch
-            sh, de, cl, to, co_metric = loss_func._compute_all_metrics(modified_images_batch) # (batch,)
-            other_metrics = torch.stack([de, cl, to, co_metric], dim=1) # (batch, 4)
+            sh_raw, de_raw, cl_raw, to_raw, co_raw = loss_func._compute_all_metrics(modified_images_batch) # (batch,)
+            sh, de, cl, to, co = loss_func._normalize_metrics(sh_raw, de_raw, cl_raw, to_raw, co_raw)
+            other_metrics = torch.stack([de, cl, to, co], dim=1) # (batch, 4)
             mean_others = other_metrics.mean(dim=1) # (batch,)
             scores = sh * mean_others # (batch,)
             scores = torch.nan_to_num(scores, nan=-1.0, posinf=-1.0, neginf=-1.0) # Use -1 for invalid scores for PCP vis
