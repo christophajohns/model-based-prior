@@ -6,13 +6,15 @@ Interactive Bayesian Image Tuning Script
 This script provides an interactive interface for tuning multiple images using
 Bayesian optimization with human feedback. It processes images from a specified
 directory, applies random initial transformations, and allows users to evaluate
-and optimize the transformations through an interactive UI.
+and optimize the transformations through an interactive UI. Saves the data for
+each participant.
 """
 
 import os
 import sys
 import logging
 import argparse
+import json
 from typing import Dict, List, Optional, Tuple
 
 import torch
@@ -34,8 +36,10 @@ from modelbasedprior.visualization.visualization import make_grid, show_images
 
 # Default values
 SMOKE_TEST = False  # Set to True to use a synthetic function instead of an actual human evaluator
-AVA_FLOWERS_DIR = os.getenv("AVA_FLOWERS_DIR")  # image directory
+DEFAULT_IMAGE_DIR = os.getenv("AVA_FLOWERS_DIR")  # image directory
 IMAGE_IDS = ["43405", "117679", "189197"]  # Example IDs
+DEFAULT_SAVE_DIR = os.getenv("IMAGE_TUNING_SAVE_DIR", "./image_tuning_results") # Resolve env var or use default "./image_tuning_results"
+DEFAULT_PARTICIPANT_ID = 1
 OPTIMAL_CONFIGURATION = None  # (0.8, 1.2, 1.2, 0.1)  # brightness, contrast, saturation, hue OR None
 SEED = 23489
 NUM_ANCHORING_SAMPLES = 2  # Number of random samples for anchoring mitigation
@@ -64,6 +68,8 @@ class ImageTuningConfig:
         self.ial_iterations = IAL_ITERATIONS
         self.downsampling_size = DOWNSAMPLING_SIZE
         self.optimal_configuration = OPTIMAL_CONFIGURATION  # Optional target configuration
+        self.participant_id = DEFAULT_PARTICIPANT_ID
+        self.save_path = None # Will be set externally based on args/defaults
         
         # Override defaults with any provided kwargs
         for key, value in kwargs.items():
@@ -83,8 +89,20 @@ class ImageTuningConfig:
             num_initial_samples=args.num_initial_samples,
             ial_k_levels=args.ial_k_levels,
             ial_iterations=args.ial_iterations,
-            downsampling_size=args.downsampling_size
+            downsampling_size=args.downsampling_size,
+            participant_id=args.participant_id,
+            save_path=args.save_path # Pass the final determined path from main/args
         )
+    
+    def to_dict(self):
+        """Convert configuration to a dictionary for saving."""
+        # Simple conversion, assumes all attributes are serializable or okay to represent as is
+        # Convert tensors or other complex types if necessary here
+        config_dict = self.__dict__.copy()
+        # Example: convert optimal_configuration tuple if it exists
+        if isinstance(config_dict.get('optimal_configuration'), tuple):
+             config_dict['optimal_configuration'] = list(config_dict['optimal_configuration'])
+        return config_dict
 
 
 class ImageTuner:
@@ -95,6 +113,27 @@ class ImageTuner:
         self.config = config
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         torch.manual_seed(self.config.seed)
+
+        if self.config.save_path:
+            try:
+                os.makedirs(self.config.save_path, exist_ok=True)
+                logger.info(f"Ensured save directory exists: {self.config.save_path}")
+
+                # Save the configuration file for this run
+                config_filename = f"config_p{self.config.participant_id}_run.json"
+                config_filepath = os.path.join(self.config.save_path, config_filename)
+                try:
+                    with open(config_filepath, 'w') as f:
+                        json.dump(self.config.to_dict(), f, indent=4)
+                    logger.info(f"Run configuration saved to {config_filepath}")
+                except Exception as e:
+                    logger.error(f"Failed to save configuration file: {e}")
+
+            except OSError as e:
+                logger.error(f"Failed to create save directory {self.config.save_path}: {e}. Saving will be disabled.")
+                self.config.save_path = None # Disable saving if directory fails
+        else:
+            logger.warning("No save path provided in configuration. Results will not be saved.")
         
     @staticmethod
     def get_image_paths(directory: str, image_ids: List[str]) -> List[str]:
@@ -249,16 +288,27 @@ class ImageTuner:
             
             logger.info("--- Bayesian Optimization Complete ---")
             
-            # Post-processing and visualization
+            # Post-processing and visualization            
+            result_best_X, result_best_y = self.compute_best_X_y(result_X, result_y)
+            best_final_config = result_best_X[-1] if result_best_X.shape[0] > 0 else None
+
+            self._save_run_data(
+                image_path=image_path,
+                initial_modification=random_modification,
+                result_X=result_X,
+                result_y=result_y,
+                result_best_X_trace=result_best_X,
+                result_best_y_trace=result_best_y,
+                best_final_config=best_final_config
+            )
+
             self._visualize_results(
                 result_X, result_y, prior_predict_func, 
                 original_image, modified_image, target_image_for_plotting, 
                 image_path
             )
-            
-            # Return the best configuration
-            result_best_X, result_best_y = self.compute_best_X_y(result_X, result_y)
-            return result_best_X[-1] if result_best_X.shape[0] > 0 else None
+
+            return best_final_config # Return the best config found
             
         except Exception as e:
             logger.error(f"Error processing image {image_path}: {str(e)}")
@@ -292,6 +342,9 @@ class ImageTuner:
                           original_image, modified_image, target_image, image_path):
         """Create visualizations of optimization results."""
         logger.info("Generating result visualizations...")
+        image_basename = os.path.basename(image_path)
+        image_name_no_ext = os.path.splitext(image_basename)[0]
+        save_plots = self.config.save_path is not None # Check if saving is enabled
         
         # Get best results
         result_best_X, result_best_y = self.compute_best_X_y(result_X, result_y)
@@ -354,6 +407,15 @@ class ImageTuner:
         
         fig.suptitle(f"Optimization Traces - {os.path.basename(image_path)}", fontsize=16)
         fig.tight_layout(rect=[0, 0.03, 1, 0.97])
+
+        if save_plots:
+             plot_filename = f"plot_traces_{image_name_no_ext}_p{self.config.participant_id}.png"
+             try:
+                 fig.savefig(os.path.join(self.config.save_path, plot_filename))
+                 logger.info(f"Trace plot saved to {os.path.join(self.config.save_path, plot_filename)}")
+             except Exception as e:
+                 logger.error(f"Failed to save trace plot: {e}")
+
         plt.show()
         
         # Print summary
@@ -375,6 +437,41 @@ class ImageTuner:
                 pass
         
         print(f"\nBest Score: {result_best_y.max().item():.4f}")
+
+    def _save_run_data(self, image_path: str, initial_modification: Tuple,
+                       result_X: Optional[torch.Tensor], result_y: Optional[torch.Tensor],
+                       result_best_X_trace: Optional[torch.Tensor], result_best_y_trace: Optional[torch.Tensor],
+                       best_final_config: Optional[torch.Tensor]) -> None:
+        """Saves the results of a single image optimization run."""
+        if not self.config.save_path:
+            logger.debug("Save path not configured, skipping saving run data.")
+            return
+
+        image_basename = os.path.basename(image_path)
+        image_name_no_ext = os.path.splitext(image_basename)[0]
+        save_filename = f"results_{image_name_no_ext}_p{self.config.participant_id}.pt"
+        save_filepath = os.path.join(self.config.save_path, save_filename)
+
+        data_to_save = {
+            'image_path': image_path,
+            'initial_random_modification': initial_modification,
+             # Save tensors on CPU to avoid device issues when loading later
+            'result_X': result_X.cpu() if result_X is not None else None,
+            'result_y': result_y.cpu() if result_y is not None else None,
+            'result_best_X_trace': result_best_X_trace.cpu() if result_best_X_trace is not None else None,
+            'result_best_y_trace': result_best_y_trace.cpu() if result_best_y_trace is not None else None,
+            'best_final_config': best_final_config.cpu() if best_final_config is not None else None,
+            # Optionally include config again, though it's saved separately
+            # 'config_snapshot': self.config.to_dict()
+        }
+
+        try:
+            torch.save(data_to_save, save_filepath)
+            logger.info(f"Run data saved to {save_filepath}")
+        except Exception as e:
+            logger.error(f"Failed to save run data for {image_path} to {save_filepath}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
     
     def process_images(self, image_dir: str, image_ids: List[str]) -> None:
         """Process multiple images in sequence."""
@@ -424,7 +521,7 @@ def parse_args():
     parser.add_argument(
         "--image-dir", 
         type=str,
-        default=AVA_FLOWERS_DIR,
+        default=DEFAULT_IMAGE_DIR,
         help="Directory containing images to process"
     )
     
@@ -434,6 +531,20 @@ def parse_args():
         nargs="+",
         default=IMAGE_IDS,
         help="List of image IDs to process (without file extension)"
+    )
+
+    parser.add_argument(
+        "--participant-id",
+        type=int,
+        default=DEFAULT_PARTICIPANT_ID,
+        help="Identifier for the current participant."
+    )
+
+    parser.add_argument(
+        "--save-dir",
+        type=str,
+        default=None, # Default to None, logic in main will handle env var and final default
+        help=f"Base directory to save results. If not set, uses IMAGE_TUNING_SAVE_DIR env var, then defaults to '{DEFAULT_SAVE_DIR}'. A subdirectory 'participant_<ID>' will be created."
     )
     
     parser.add_argument(
@@ -500,7 +611,12 @@ def parse_args():
         help="Logging level"
     )
     
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    if not args.image_dir:
+         parser.error("--image-dir is required if AVA_FLOWERS_DIR environment variable is not set.")
+
+    return args
 
 
 def main():
@@ -513,6 +629,12 @@ def main():
     setup_logger(level=log_level)
     
     try:
+        # Determine Final Save Path
+        base_save_dir = args.save_dir if args.save_dir is not None else DEFAULT_SAVE_DIR
+        # Construct the full path including the participant ID subdir
+        participant_save_path = os.path.join(base_save_dir, f"participant_{args.participant_id}")
+        args.save_path = participant_save_path # Add the determined path to args temporarily for from_args
+
         # Create configuration from args
         config = ImageTuningConfig.from_args(args)
         

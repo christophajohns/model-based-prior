@@ -173,7 +173,7 @@ def load_model(path: str, train_X: torch.Tensor, train_Y: torch.Tensor, bounds: 
     )
     mll = ExactMarginalLogLikelihood(gp.likelihood, gp)
     fit_gpytorch_mll(mll)
-    gp.load_state_dict(torch.load(path))
+    gp.load_state_dict(torch.load(path, weights_only=True))
     return gp
 
 if __name__ == "__main__":

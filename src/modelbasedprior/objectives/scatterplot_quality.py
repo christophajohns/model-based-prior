@@ -105,7 +105,7 @@ class ScatterPlotQualityLoss(SyntheticTestFunction):
         self._weight_outlier_perception = weight_outlier_perception
         if use_approximate_model:
             self._approximate_model = ScatterPlotQualityLossRegressor()
-            self._approximate_model.load_state_dict(torch.load(os.path.join(os.getenv('PRETRAINED_MODELS_DIR'), 'biased_scatterplotquality_model.pth')))
+            self._approximate_model.load_state_dict(torch.load(os.path.join(os.getenv('PRETRAINED_MODELS_DIR'), 'biased_scatterplotquality_model.pth'), weights_only=True))
             self._approximate_model.eval()
         self._use_approximate_model = use_approximate_model
 

@@ -241,7 +241,7 @@ def load_model(path: str, datapoints: torch.Tensor, comparisons: torch.Tensor, b
     )
     mll = PairwiseLaplaceMarginalLogLikelihood(gp.likelihood, gp)
     fit_gpytorch_mll(mll)
-    gp.load_state_dict(torch.load(path))
+    gp.load_state_dict(torch.load(path, weights_only=True))
     return gp
 
 if __name__ == "__main__":

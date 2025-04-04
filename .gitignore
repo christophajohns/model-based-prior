@@ -189,3 +189,6 @@ stats
 
 # File management
 .DS_Store
+
+# Image tuning results
+image_tuning_results
