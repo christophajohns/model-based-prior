@@ -345,6 +345,17 @@ class ImageTuner:
         image_basename = os.path.basename(image_path)
         image_name_no_ext = os.path.splitext(image_basename)[0]
         save_plots = self.config.save_path is not None # Check if saving is enabled
+
+        image_specific_save_dir = None
+        if save_plots:
+            # self.config.save_path is the participant directory
+            image_specific_save_dir = os.path.join(self.config.save_path, image_name_no_ext)
+            # Ensure directory exists (might be redundant if _save_run_data ran, but safe)
+            try:
+                os.makedirs(image_specific_save_dir, exist_ok=True)
+            except OSError as e:
+                logger.error(f"Failed to create image-specific save directory {image_specific_save_dir} for plots: {e}. Plot saving disabled.")
+                save_plots = False # Disable saving if dir creation fails here
         
         # Get best results
         result_best_X, result_best_y = self.compute_best_X_y(result_X, result_y)
@@ -409,12 +420,13 @@ class ImageTuner:
         fig.tight_layout(rect=[0, 0.03, 1, 0.97])
 
         if save_plots:
-             plot_filename = f"plot_traces_{image_name_no_ext}_p{self.config.participant_id}.png"
-             try:
-                 fig.savefig(os.path.join(self.config.save_path, plot_filename))
-                 logger.info(f"Trace plot saved to {os.path.join(self.config.save_path, plot_filename)}")
-             except Exception as e:
-                 logger.error(f"Failed to save trace plot: {e}")
+            plot_filename = f"plot_traces_{image_name_no_ext}_p{self.config.participant_id}.png"
+            save_plot_path = os.path.join(image_specific_save_dir, plot_filename)
+            try:
+                fig.savefig(save_plot_path)
+                logger.info(f"Trace plot saved to {save_plot_path}")
+            except Exception as e:
+                logger.error(f"Failed to save trace plot: {e}")
 
         plt.show()
         
@@ -449,8 +461,16 @@ class ImageTuner:
 
         image_basename = os.path.basename(image_path)
         image_name_no_ext = os.path.splitext(image_basename)[0]
+
+        image_specific_save_dir = os.path.join(self.config.save_path, image_name_no_ext)
+        try:
+            os.makedirs(image_specific_save_dir, exist_ok=True) # Create dir if not exists
+        except OSError as e:
+            logger.error(f"Failed to create image-specific save directory {image_specific_save_dir}: {e}. Skipping save.")
+            return
+
         save_filename = f"results_{image_name_no_ext}_p{self.config.participant_id}.pt"
-        save_filepath = os.path.join(self.config.save_path, save_filename)
+        save_filepath = os.path.join(image_specific_save_dir, save_filename)
 
         data_to_save = {
             'image_path': image_path,
