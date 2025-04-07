@@ -15,13 +15,20 @@ from torchvision.io import read_image
 from torchvision.transforms.functional import resize
 from modelbasedprior.optimization.bo import generate_data_from_prior, init_and_fit_model, make_new_data
 from modelbasedprior.objectives.sphere import Sphere
-from modelbasedprior.objectives.shekel import Shekel2D, Shekel2DNoGlobal, ShekelNoGlobal
+from modelbasedprior.objectives.shekel import Shekel2D, Shekel2DNoGlobal, ShekelNoGlobal, Shekel1D, Shekel1DNoGlobal
 from modelbasedprior.objectives.image_similarity import ImageSimilarityLoss
 from modelbasedprior.objectives.scatterplot_quality import ScatterPlotQualityLoss
 from modelbasedprior.objectives.mr_layout_quality import MRLayoutQualityLoss
 from modelbasedprior.prior import ModelBasedPrior
 
 load_dotenv()
+
+# Helper functions
+def detach(tensor):
+    return tensor.detach().cpu().numpy()
+
+def normalize_X(X, bounds):
+    return normalize(X.unsqueeze(-1), bounds)
 
 def sphere_plot() -> Tuple[plt.Figure, plt.Axes]:
     """Create an illustration of the Sphere objective
@@ -351,13 +358,6 @@ def initial_samples_plot() -> Tuple[plt.Figure, plt.Axes]:
     high_temperature = 1.0
     prior_offset = 4.0 # 0.05 or 4.0
     seed = 42
-
-    # Helper functions
-    def detach(tensor):
-        return tensor.detach().cpu().numpy()
-    
-    def normalize_X(X, bounds):
-        return normalize(X.unsqueeze(-1), bounds)
     
     # Setup
     torch.manual_seed(seed)
@@ -485,20 +485,268 @@ def initial_samples_plot() -> Tuple[plt.Figure, plt.Axes]:
 
     return fig, axes
 
+def colabo_robustness(seed: int | None = 2768) -> Tuple[plt.Figure, plt.Axes]:
+    def plot_objective_function(
+            ax: plt.Axes,
+            objective = Shekel1D(negate=True),
+            n_points: int = 100,
+            offset: Tuple[float, float] = (-0.3, 0.),
+            annotate_objective_optimum: bool = False,
+        ):
+        if objective.dim != 1: raise ValueError("objective needs to have dim=1")
+        x = unnormalize(torch.linspace(0, 1, n_points), objective.bounds)
+        y = objective(x.unsqueeze(-1))
+
+        ax.plot(x, y, color="k", label=r"$f(x)$")
+
+        x_opt = objective._optimizers[0][0]
+        optimum_objective = (x_opt, objective(torch.tensor(x_opt, dtype=torch.float64)).item())
+        ax.axvline(x_opt, color="lightgray", linestyle=":", label=r"$\max_x f(x)$")
+        if annotate_objective_optimum:
+            text_position = unnormalize(normalize(x_opt, objective.bounds) + torch.tensor(offset), objective.bounds)
+            ax.annotate(r'$\max_x f(x)$', xy=optimum_objective, xytext=text_position, xycoords='data',
+                        arrowprops=dict(facecolor='k', edgecolor='none', shrink=0.05, width=2, headwidth=10),
+                        verticalalignment='center', horizontalalignment='center')
+        
+        ax.set_xlabel(r"$x$")
+        ax.set_ylabel(r"$f(x)$")
+
+    def plot_objective_vs_prior_func(
+            ax: plt.Axes,
+            objective = Shekel1D(negate=True),
+            prior_predictor = Shekel1DNoGlobal(negate=True),
+            prior_predictor_optimizers = Shekel1DNoGlobal(negate=True)._optimizers,
+            n_points: int = 100,
+            offset: Tuple[float, float] = (0.3, 0.),
+            annotate_objective_optimum: bool = False,
+            annoate_prior_optimum: bool = False,
+        ):
+        x = unnormalize(torch.linspace(0, 1, n_points), objective.bounds)
+        y_obj = objective(x.unsqueeze(-1))
+        y_prior = prior_predictor(x.unsqueeze(-1))
+
+        x_opt = objective._optimizers[0][0]
+        optimum_objective = (x_opt, objective(torch.tensor(x_opt, dtype=torch.float64)).item())
+        ax.axvline(x_opt, color="lightgray", linestyle=":")  # label=r"$x^*$"
+        if annotate_objective_optimum:
+            text_position = unnormalize(normalize(x_opt, objective.bounds) + torch.tensor(offset), objective.bounds)
+            ax.annotate(r'$\max_x f(x)$', xy=optimum_objective, xytext=text_position, color="lightgray",
+                        arrowprops=dict(facecolor='lightgray', edgecolor='none', shrink=0.05, width=2, headwidth=10),
+                        verticalalignment='center', horizontalalignment='center')
+        
+        x_prior_opt = prior_predictor_optimizers[0][0]
+        optimum_prior = (x_prior_opt, prior_predictor(torch.tensor(x_prior_opt, dtype=torch.float64)).item())
+        ax.axvline(x_prior_opt, color="k", linestyle=":")  # label=r"$\hat{x}^*$"
+        if annoate_prior_optimum:
+            text_position = unnormalize(normalize(x_prior_opt, objective.bounds) + torch.tensor(offset), objective.bounds)
+            ax.annotate(r'$\max_x \hat{f}(x)$', xy=optimum_prior, xytext=text_position,
+                        arrowprops=dict(facecolor='k', edgecolor='none', shrink=0.05, width=2, headwidth=10),
+                        verticalalignment='center', horizontalalignment='center')
+        
+        ax.plot(x, y_obj, color="lightgray", linestyle="--", label=r"$f(x)$")
+        ax.plot(x, y_prior, color="k", label=r"$\hat{f}(x)$")
+
+        ax.legend(loc="upper left")
+
+        ax.set_xlabel(r"$x$")
+        ax.set_ylabel(r"$\hat{f}(x)$")
+
+    def plot_prior(
+            ax: plt.Axes,
+            objective = Shekel1D(negate=True),
+            prior_predictor = Shekel1DNoGlobal(negate=True),
+            prior_predictor_optimizers = Shekel1DNoGlobal(negate=True)._optimizers,
+            n_points: int = 100,
+            temperature: float = 1.0,
+            norm_width: float = 1.0,
+        ):
+        x = unnormalize(torch.linspace(0, 1, n_points), objective.bounds)
+        y_pred_raw = prior_predictor(x.unsqueeze(-1)).squeeze()
+        y_pred_norm = normalize(y_pred_raw, torch.stack([y_pred_raw.min(), y_pred_raw.max()])) * norm_width - norm_width/2
+        y_pred_temp = y_pred_norm / temperature
+        y_pred = torch.exp(y_pred_temp)
+        y_pred_scaled = y_pred / torch.trapezoid(y_pred, x)
+
+        y_obj_raw = objective(x.unsqueeze(-1)).squeeze()
+        y_obj_norm = normalize(y_obj_raw, torch.stack([y_obj_raw.min(), y_obj_raw.max()])) * norm_width - norm_width/2
+        y_obj_temp = y_obj_norm / temperature
+        y_obj = torch.exp(y_obj_temp)
+        y_obj_scaled = y_obj / torch.trapezoid(y_obj, x)
+
+        ax.axvline(objective._optimizers[0][0], color="lightgray", linestyle=":")  # label=r"$x^*$"
+        ax.axvline(prior_predictor_optimizers[0][0], color="k", linestyle=":")  # label=r"$\hat{x}^*$"
+
+        ax.plot(x, y_obj_scaled, color="lightgray", linestyle="--", label=r"$\pi_f(x)$")
+        ax.plot(x, y_pred_scaled, color="k", label=r"$\pi_{\hat{f}}(x)$")
+
+        ax.legend(loc="upper left")
+
+        ax.set_xlabel(r"$x$")
+        ax.set_ylabel(r"$\pi(x)$")
+
+    def plot_surrogate(
+            ax: plt.Axes,
+            ax_acq_func: plt.Axes | None = None,
+            objective = Shekel1D(negate=True),
+            prior_predictor = Shekel1DNoGlobal(negate=True),
+            prior_predictor_optimizers = Shekel1DNoGlobal(negate=True)._optimizers,
+            n_points: int = 100,
+            temperature: float = 1.0,
+            seed: int = 42,
+            num_paths: int = 2**16,
+            num_resampling_paths: int = 4096,
+            max_num_paths_to_plot: int = 5,
+            x_samples_normalized = [0.1, 0.4, 0.8],
+        ):
+        # Plot optima
+        ax.axvline(objective._optimizers[0][0], color="lightgray", linestyle=":")  # label=r"$x^*$"
+        ax.axvline(prior_predictor_optimizers[0][0], color="k", linestyle=":")  # label=r"$\hat{x}^*$"
+
+        # Initialization samples
+        init_x = unnormalize(torch.tensor(x_samples_normalized), objective.bounds)
+        init_y = objective(init_x.unsqueeze(-1))
+
+        # Plot surrogate
+        x = unnormalize(torch.linspace(0, 1, n_points), objective.bounds)
+        user_prior = ModelBasedPrior(bounds=objective.bounds, predict_func=prior_predictor, temperature=temperature, seed=seed, minimize=False)
+        user_prior_obj = ModelBasedPrior(bounds=objective.bounds, predict_func=objective, temperature=temperature, seed=seed, minimize=False)
+        model = init_and_fit_model(init_x.unsqueeze(dim=-1), init_y.unsqueeze(dim=-1), objective.bounds)
+        paths = draw_matheron_paths(model=model, sample_shape=torch.Size([num_paths]))
+        sampler = PathwiseSampler(sample_shape=torch.Size([num_paths]))
+        acq_func = qPriorExpectedImprovement(
+            model=model,
+            paths=paths,
+            sampler=sampler,
+            X_baseline=init_x.unsqueeze(dim=-1),
+            user_prior=user_prior,
+            resampling_fraction=num_resampling_paths/num_paths,
+            custom_decay=1.0,
+        )
+        acq_func_obj = qPriorExpectedImprovement(
+            model=model,
+            paths=paths,
+            sampler=sampler,
+            X_baseline=init_x.unsqueeze(dim=-1),
+            user_prior=user_prior_obj,
+            resampling_fraction=num_resampling_paths/num_paths,
+            custom_decay=1.0,
+        )
+        acq_func_uniform = qPriorExpectedImprovement(
+            model=model,
+            paths=paths,
+            sampler=sampler,
+            X_baseline=init_x.unsqueeze(dim=-1),
+            user_prior=None,
+            resampling_fraction=num_resampling_paths/num_paths,
+            custom_decay=1.0,
+        )
+        paths = acq_func.sampling_model.paths.paths
+        paths_obj = acq_func_obj.sampling_model.paths.paths
+        matheron_path = MatheronPath(paths.prior_paths, paths.update_paths)
+        matheron_path_obj = MatheronPath(paths_obj.prior_paths, paths_obj.update_paths)
+        prior_samples = matheron_path(x.unsqueeze(-1), subset=acq_func.indices)
+        prior_samples_obj = matheron_path_obj(x.unsqueeze(-1), subset=acq_func_obj.indices)
+        prior_mean, prior_std = prior_samples.mean(dim=0), prior_samples.std(dim=0)
+        prior_mean_obj, prior_std_obj = prior_samples_obj.mean(dim=0), prior_samples_obj.std(dim=0)
+        uniform_prior_samples = matheron_path(x.unsqueeze(-1))
+        uniform_prior_mean, uniform_prior_std = uniform_prior_samples.mean(dim=0), uniform_prior_samples.std(dim=0)
+        ax.plot(detach(x), detach(prior_mean_obj), label=r'$p(f \mid \mathcal{D}, \rho_f)$', linestyle="--", color='lightgray')
+        ax.fill_between(detach(x), detach(prior_mean_obj - prior_std_obj), detach(prior_mean_obj + prior_std_obj), color='lightgray', alpha=0.1)
+        ax.plot(detach(x), detach(uniform_prior_mean), label=r'$p(f \mid \mathcal{D})$', linestyle="dashdot", color='gray')
+        ax.fill_between(detach(x), detach(uniform_prior_mean - uniform_prior_std), detach(uniform_prior_mean + uniform_prior_std), color='gray', alpha=0.1)
+        ax.plot(detach(x), detach(prior_mean), label=r'$p(f \mid \mathcal{D}, \rho_{\hat{f}})$', color='k')
+        ax.fill_between(detach(x), detach(prior_mean - prior_std), detach(prior_mean + prior_std), color='k', alpha=0.1)
+
+        # Plot sample paths
+        for path_idx in range(min(max_num_paths_to_plot, prior_samples.size(0))):
+            ax.plot(detach(x), detach(prior_samples[path_idx]), color='gray', alpha=0.9, linewidth=0.3, label=r'$f_i \sim p(f \mid \mathcal{D}, \rho)$' if path_idx == 0 else '__nolabel__')
+
+        # Plot samples
+        ax.scatter(detach(unnormalize(acq_func.sampling_model.train_inputs[0], objective.bounds)), detach(acq_func.sampling_model.train_targets), color="k", s=8, label=r"$\mathcal{D}$")
+
+        ax.legend(loc="upper left")
+        
+        ax.set_xlabel(r"$x$")
+        ax.set_ylabel(r"$f(x)$")
+
+        if ax_acq_func is None: return
+
+        # Plot acquisition function
+        # Generate candidate points
+        X_cand = torch.cat((init_x.unsqueeze(-1).unsqueeze(0).expand(x.size(0), -1, -1), x.view(x.size(0), 1, 1)), dim=1)
+        with torch.no_grad():
+            ei = acq_func(X_cand)
+            ei_obj = acq_func_obj(X_cand)
+            ei_norm = normalize(ei, torch.stack([ei.min(), ei.max()]))
+            ei_obj_norm = normalize(ei_obj, torch.stack([ei_obj.min(), ei_obj.max()]))
+            ei_uniform = acq_func_uniform(X_cand)
+            ei_uniform_norm = normalize(ei_uniform, torch.stack([ei_uniform.min(), ei_uniform.max()]))
+
+        ax_acq_func.axvline(objective._optimizers[0][0], color="lightgray", linestyle=":")  # label=r"$x^*$"
+        ax_acq_func.axvline(prior_predictor_optimizers[0][0], color="k", linestyle=":")  # label=r"$\hat{x}^*$"
+
+        ax_acq_func.plot(x, detach(ei_obj_norm), label=r"$\alpha_{\pi_f} (x)$", linestyle="--", color="lightgray")
+        ax_acq_func.plot(x, detach(ei_uniform_norm), label=r"$\alpha(x)$", linestyle="dashdot", color="gray")
+        ax_acq_func.plot(x, detach(ei_norm), label=r"$\alpha_{\pi_{\hat{f}}} (x)$", color="k")
+
+        ax_acq_func.legend(loc="upper left")
+
+        ax_acq_func.set_xlabel(r"$x$")
+        ax_acq_func.set_ylabel(r"$\alpha(x)$")
+    
+    if seed is not None: torch.manual_seed(seed)
+    fig, axes = plt.subplots(1, 4, figsize=(14, 3), sharex=True)
+    # ax_obj: plt.Axes = axes[0]
+    ax_prior_func_vs_obj: plt.Axes = axes[0]
+    ax_prior: plt.Axes = axes[1]
+    ax_surrogate: plt.Axes = axes[2]
+    ax_acqf: plt.Axes = axes[3]
+    # objective = Sphere(dim=1, negate=True)
+    # offset = -4.0
+    # prior_predictor = lambda x: objective(x - offset)
+    # prior_predictor_optimizers = [(offset,)]
+    # x_samples_normalized = [0.1, 0.4, 0.8]
+    objective = Shekel1D(negate=True)
+    prior_predictor = Shekel1DNoGlobal(negate=True)
+    prior_predictor_optimizers = prior_predictor._optimizers
+    x_samples_normalized = [0.01, 0.34, 0.46, 0.6, 0.8, 0.99] # + torch.linspace(0, 1, 20).numpy().tolist()
+    # plot_objective_function(ax_obj, objective=objective)
+    plot_objective_vs_prior_func(ax_prior_func_vs_obj, objective=objective, prior_predictor=prior_predictor, prior_predictor_optimizers=prior_predictor_optimizers)
+    temp = 0.01
+    plot_prior(ax_prior, temperature=temp, objective=objective, prior_predictor=prior_predictor, prior_predictor_optimizers=prior_predictor_optimizers)
+    num_paths = 2**16
+    num_resampling_paths = 2**16
+    max_num_paths_to_plot = 0
+    plot_surrogate(ax_surrogate, ax_acq_func=ax_acqf, temperature=temp, objective=objective, prior_predictor=prior_predictor, prior_predictor_optimizers=prior_predictor_optimizers, x_samples_normalized=x_samples_normalized, num_paths=num_paths, num_resampling_paths=num_resampling_paths, max_num_paths_to_plot=max_num_paths_to_plot)
+
+    for ax in axes:
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+    # for ax in axes[:len(axes)-1]:
+    #     ax: plt.Axes
+    #     ax.set_xlabel("")
+
+    return fig, axes
+
 
 def main():
     """Create the illustrative plots for the paper."""
-    # plots_dir = os.getenv('PLOTS_DIR')
+    plots_dir = os.getenv('PLOTS_DIR')
 
     for plot_func, filename in [
-        (sphere_plot, 'sphere.png'),
-        (shekel_plot, 'shekel.png'),
-        (scatter_quality_plot, 'scatter_quality.png'),
-        (prior_temperature_plot, 'prior_temperature.png'),
-        (initial_samples_plot, 'initial_samples.png'),
+        # (sphere_plot, 'sphere.png'),
+        # (shekel_plot, 'shekel.png'),
+        # (scatter_quality_plot, 'scatter_quality.png'),
+        # (prior_temperature_plot, 'prior_temperature.png'),
+        # (initial_samples_plot, 'initial_samples.png'),
+        (colabo_robustness, 'colabo_robustness.png'),
     ]:
         fig, ax = plot_func()
-        # fig.savefig(os.path.join(plots_dir, filename), dpi=300, bbox_inches='tight')
+        fig.savefig(os.path.join(plots_dir, filename), dpi=300, bbox_inches='tight')
         fig.tight_layout()
 
     plt.show()
