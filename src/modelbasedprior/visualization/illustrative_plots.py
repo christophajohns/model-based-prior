@@ -9,6 +9,7 @@ from botorch.utils.prior import normalize, unnormalize
 from botorch.sampling.pathwise import MatheronPath, draw_matheron_paths
 from botorch.sampling.pathwise_sampler import PathwiseSampler
 from botorch.acquisition.prior_monte_carlo import qPriorExpectedImprovement
+from botorch.acquisition.analytic import ExpectedImprovement
 from botorch.optim import optimize_acqf
 from dotenv import load_dotenv
 from torchvision.io import read_image
@@ -485,7 +486,7 @@ def initial_samples_plot() -> Tuple[plt.Figure, plt.Axes]:
 
     return fig, axes
 
-def colabo_robustness(seed: int | None = 2768) -> Tuple[plt.Figure, plt.Axes]:
+def colabo_robustness_plot(seed: int | None = 2768) -> Tuple[plt.Figure, plt.Axes]:
     def plot_objective_function(
             ax: plt.Axes,
             objective = Shekel1D(negate=True),
@@ -733,6 +734,205 @@ def colabo_robustness(seed: int | None = 2768) -> Tuple[plt.Figure, plt.Axes]:
     return fig, axes
 
 
+def pibo_normalization_plot() -> Tuple[plt.Figure, plt.Axes]:
+    fig, axes = plt.subplots(1, 4, figsize=(15, 3), sharex=True)
+
+    def plot_prior_predict_func(
+            ax: plt.Axes,
+            f_min_perc: float = 0.1,
+            f_max_perc: float = 0.6,
+            objective = Sphere(dim=1, negate=True),
+            n_points: int = 100,
+            x_samples_normalized = [0.01, 0.4, 0.99],
+        ):
+        x = unnormalize(torch.linspace(0, 1, n_points), objective.bounds)
+        y: torch.Tensor = objective(x.unsqueeze(-1))
+
+        f_min_hat = y.quantile(f_min_perc)
+        f_max_hat = y.quantile(f_max_perc)
+
+        ax.axhline(f_min_hat, linestyle=":", color="lightgray", label=r"$[\hat{f}_{min}, \hat{f}_{max}]$")
+        ax.axhline(f_max_hat, linestyle=":", color="lightgray")
+        ax.fill_between(x, f_min_hat, f_max_hat, color='lightgray', alpha=0.1)
+
+        ax.plot(x, y, color="k")
+
+        # Plot samples
+        init_x = unnormalize(torch.tensor(x_samples_normalized), objective.bounds)
+        init_y = objective(init_x.unsqueeze(-1))
+        ax.scatter(init_x, init_y, color="k", s=10, label=r"$\mathcal{D}$")
+
+        ax.legend(loc="upper center")
+
+        ax.set_xlabel(r"$x$")
+        ax.set_ylabel(r"$\hat{f}(x)$")
+
+    def plot_normalized_prior_predict_func(
+            ax: plt.Axes,
+            f_min_perc: float = 0.1,
+            f_max_perc: float = 0.6,
+            objective = Sphere(dim=1, negate=True),
+            n_points: int = 100,
+        ):
+        x = unnormalize(torch.linspace(0, 1, n_points), objective.bounds)
+        y: torch.Tensor = objective(x.unsqueeze(-1))
+
+        f_min_hat = y.quantile(f_min_perc)
+        f_max_hat = y.quantile(f_max_perc)
+
+        y_norm: torch.Tensor = normalize(objective(x.unsqueeze(-1)), torch.stack([y.min(), y.max()]))
+        y_hat_norm: torch.Tensor = normalize(objective(x.unsqueeze(-1)), torch.stack([f_min_hat, f_max_hat]))
+
+        ax.plot(x, y_norm, color="lightgray", linestyle=":", label=r"$\hat{f}_{\text{norm}}(x)$ (accurate)")
+        ax.plot(x, y_hat_norm, color="k", label=r"$\hat{f}_{\text{norm}}(x)$ (inaccurate)")
+
+        ax.legend(loc="lower center")
+
+        ax.set_xlabel(r"$x$")
+        ax.set_ylabel(r"$\hat{f}_{\text{norm}}(x)$")
+
+    def calculate_stable_prob(y_normalized, temp, x_coords, eps=1e-10):
+            log_p_unnorm = y_normalized / temp
+            log_p_max = torch.max(log_p_unnorm)
+
+            # Compute log of trapezoidal integral stably
+            # log(integral(exp(log_p_unnorm) dx)) = log_p_max + log(integral(exp(log_p_unnorm - log_p_max) dx))
+            integrand_stable = torch.exp(log_p_unnorm - log_p_max)
+            integral_stable = torch.trapezoid(integrand_stable, x_coords)
+
+            # Add eps for stability before taking log
+            log_norm_const = log_p_max + torch.log(integral_stable + eps)
+
+            # Compute final log probability and probability
+            log_p = log_p_unnorm - log_norm_const
+            p = torch.exp(log_p)
+            return p
+
+    def plot_prior(
+            ax: plt.Axes,
+            f_min_perc: float = 0.1,
+            f_max_perc: float = 0.6,
+            objective = Sphere(dim=1, negate=True),
+            n_points: int = 100,
+            temperature: float = 1.0,
+            norm_width: float = 10.0,
+        ):
+        x = unnormalize(torch.linspace(0, 1, n_points), objective.bounds)
+        y: torch.Tensor = objective(x.unsqueeze(-1))
+
+        f_min_hat = y.quantile(f_min_perc)
+        f_max_hat = y.quantile(f_max_perc)
+
+        # Ensure bounds for normalization are tensors
+        actual_bounds = torch.stack([y.min(), y.max()])
+        estimated_bounds = torch.stack([f_min_hat, f_max_hat])
+        if y.dim() == 1:
+             actual_bounds = actual_bounds.squeeze()
+             estimated_bounds = estimated_bounds.squeeze()
+
+        # Normalize y to [0, 1] range first, then scale and shift
+        y_norm_01 = normalize(y, actual_bounds)
+        y_norm = y_norm_01 * norm_width - norm_width / 2
+
+        y_hat_norm_01 = normalize(y, estimated_bounds)
+        y_hat_norm = y_hat_norm_01 * norm_width - norm_width / 2
+
+        # Calculate probabilities using the stable method
+        y_obj_scaled = calculate_stable_prob(y_norm, temperature, x)
+        y_hat_scaled = calculate_stable_prob(y_hat_norm, temperature, x)
+
+        ax.plot(x, y_obj_scaled, color="lightgray", linestyle=":", label=r"$\pi_{\hat{f}_{\text{norm}}}(x)$ (acc.)")
+        ax.plot(x, y_hat_scaled, color="k", label=r"$\pi_{\hat{f}_{\text{norm}}}(x)$ (inacc.)")
+
+        ax.legend(loc="upper center")
+
+        ax.set_xlabel(r"$x$")
+        ax.set_ylabel(r"$\pi(x)$")
+
+    def plot_acqf_func(
+            ax: plt.Axes,
+            f_min_perc: float = 0.1,
+            f_max_perc: float = 0.6,
+            objective = Sphere(dim=1, negate=True),
+            n_points: int = 100,
+            temperature: float = 1.0,
+            norm_width: float = 10.0,
+            x_samples_normalized = [0.01, 0.4, 0.99],
+            plot_samples: bool = False,
+        ):
+        x = unnormalize(torch.linspace(0, 1, n_points), objective.bounds)
+        y: torch.Tensor = objective(x.unsqueeze(-1))
+
+        f_min_hat = y.quantile(f_min_perc)
+        f_max_hat = y.quantile(f_max_perc)
+
+        # Ensure bounds for normalization are tensors
+        actual_bounds = torch.stack([y.min(), y.max()])
+        estimated_bounds = torch.stack([f_min_hat, f_max_hat])
+        if y.dim() == 1:
+             actual_bounds = actual_bounds.squeeze()
+             estimated_bounds = estimated_bounds.squeeze()
+
+        # Normalize y to [0, 1] range first, then scale and shift
+        y_norm_01 = normalize(y, actual_bounds)
+        y_norm = y_norm_01 * norm_width - norm_width / 2
+
+        y_hat_norm_01 = normalize(y, estimated_bounds)
+        y_hat_norm = y_hat_norm_01 * norm_width - norm_width / 2
+
+        # Calculate probabilities using the stable method
+        y_obj_scaled = calculate_stable_prob(y_norm, temperature, x)
+        y_hat_scaled = calculate_stable_prob(y_hat_norm, temperature, x)
+        
+        init_x = unnormalize(torch.tensor(x_samples_normalized), objective.bounds)
+        init_y = objective(init_x.unsqueeze(-1))
+
+        model = init_and_fit_model(init_x.unsqueeze(dim=-1), init_y.unsqueeze(dim=-1), objective.bounds)
+        acq_func = ExpectedImprovement(model=model, best_f=init_y.max())
+        with torch.no_grad():
+            ei = acq_func(x.unsqueeze(-1).unsqueeze(-1))
+            ei_obj = ei * y_obj_scaled
+            ei_hat = ei_obj * y_hat_scaled
+            ei_obj_norm = normalize(ei_obj, torch.stack([ei_obj.min(), ei_obj.max()]))
+            ei_hat_norm = normalize(ei_hat, torch.stack([ei_hat.min(), ei_hat.max()]))
+
+        if plot_samples:
+            for x_idx, x_sample in enumerate(init_x):
+                ax.axvline(x_sample, color="gray", linestyle="--", linewidth=0.7, label=r"$\mathcal{D}$" if x_idx == 0 else "__nolabel__")
+
+        ax.plot(x, detach(ei_obj_norm), color="lightgray", linestyle=":", label=r"$\alpha_{\pi_{\hat{f}_{\text{norm}}}}(x)$ (acc.)")
+        ax.plot(x, detach(ei_hat_norm), color="k", label=r"$\alpha_{\pi_{\hat{f}_{\text{norm}}}}(x)$ (inacc.)")
+
+        ax.legend(loc="upper left")
+
+        ax.set_xlabel(r"$x$")
+        ax.set_ylabel(r"$\alpha(x)$")
+
+    temperature = 5.0
+    # x_samples_normalized = [0.01, 0.99]
+    objective = Shekel1DNoGlobal(negate=True)
+    f_min_perc: float = 0.12
+    f_max_perc: float = 0.8
+    x_samples_normalized = [0.01, 0.34, 0.46, 0.6, 0.8, 0.99] # + torch.linspace(0, 1, 20).numpy().tolist()
+    plot_prior_predict_func(axes[0], x_samples_normalized=x_samples_normalized, objective=objective, f_min_perc=f_min_perc, f_max_perc=f_max_perc)
+    plot_normalized_prior_predict_func(axes[1], objective=objective, f_min_perc=f_min_perc, f_max_perc=f_max_perc)
+    plot_prior(axes[2], temperature=temperature, objective=objective, f_min_perc=f_min_perc, f_max_perc=f_max_perc)
+    plot_acqf_func(axes[3], temperature=temperature, x_samples_normalized=x_samples_normalized, objective=objective, f_min_perc=f_min_perc, f_max_perc=f_max_perc)
+
+    for ax in axes:
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+    # for ax in axes[:len(axes)-1]:
+    #     ax: plt.Axes
+    #     ax.set_xlabel("")
+
+    return fig, axes
+
+
 def main():
     """Create the illustrative plots for the paper."""
     plots_dir = os.getenv('PLOTS_DIR')
@@ -743,7 +943,8 @@ def main():
         # (scatter_quality_plot, 'scatter_quality.png'),
         # (prior_temperature_plot, 'prior_temperature.png'),
         # (initial_samples_plot, 'initial_samples.png'),
-        (colabo_robustness, 'colabo_robustness.png'),
+        # (colabo_robustness_plot, 'colabo_robustness.png'),
+        (pibo_normalization_plot, 'pibo_normalization.png'),
     ]:
         fig, ax = plot_func()
         fig.savefig(os.path.join(plots_dir, filename), dpi=300, bbox_inches='tight')
