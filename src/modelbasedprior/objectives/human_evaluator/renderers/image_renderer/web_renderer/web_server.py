@@ -12,8 +12,9 @@ app = FastAPI()
 latest_image_tensor: torch.Tensor | None = None
 latest_rating: float | None = None
 target_image_tensor: torch.Tensor | None = None
+is_training: bool = False
 
-def generate_html(has_target_image: bool):
+def generate_html(has_target_image: bool, is_training: bool = False):
     template = Template("""
     <!DOCTYPE html>
     <html lang="en">
@@ -209,7 +210,7 @@ def generate_html(has_target_image: bool):
     </head>
     <body>
         <div class="container">
-            <h2>Rate the Image</h2>
+            <h2>{% if is_training %}Training: {% endif %}Rate the {% if has_target_image %}Similarity to the Target{% endif %}Image</h2>
             <div class="image-container">
                 <figure>
                     <img src="/image" alt="Generated Image" width="256" />
@@ -239,7 +240,7 @@ def generate_html(has_target_image: bool):
     </html>
     """)
     
-    return template.render(has_target_image=has_target_image)
+    return template.render(has_target_image=has_target_image, is_training=is_training)
 
 def serve_image(image_tensor: torch.Tensor | None):
     if image_tensor is None:
@@ -268,7 +269,8 @@ def serve_image(image_tensor: torch.Tensor | None):
 
 @app.get("/", response_class=HTMLResponse)
 def serve_page():
-    return generate_html(has_target_image=target_image_tensor is not None)
+    global is_training
+    return generate_html(has_target_image=target_image_tensor is not None, is_training=is_training)
 
 @app.get("/image")
 def get_image():
@@ -402,6 +404,16 @@ def set_target_image(tensor: torch.Tensor):
     """Set the target image."""
     global target_image_tensor
     target_image_tensor = tensor
+
+def get_training():
+    """Returns whether the server displays the training variant of the task."""
+    global is_training
+    return is_training
+
+def set_training(new_value: bool):
+    """Sets the training mode for the task renderer."""
+    global is_training
+    is_training = new_value
 
 def run_server():
     """Start the FastAPI server."""

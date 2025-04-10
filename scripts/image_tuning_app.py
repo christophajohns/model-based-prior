@@ -37,14 +37,14 @@ from modelbasedprior.visualization.visualization import make_grid, show_images
 # Default values
 SMOKE_TEST = False  # Set to True to use a synthetic function instead of an actual human evaluator
 DEFAULT_IMAGE_DIR = os.getenv("AVA_FLOWERS_DIR")  # image directory
-IMAGE_IDS = ["43405", "117679", "189197"]  # Example IDs
+IMAGE_IDS = ["43405", "117679", "189197", "953980", "735492"]  # Example IDs
 DEFAULT_SAVE_DIR = os.getenv("IMAGE_TUNING_SAVE_DIR", "./image_tuning_results") # Resolve env var or use default "./image_tuning_results"
-DEFAULT_PARTICIPANT_ID = 1
+DEFAULT_PARTICIPANT_ID = 99999
 OPTIMAL_CONFIGURATION = None  # (0.8, 1.2, 1.2, 0.1)  # brightness, contrast, saturation, hue OR None
 SEED = 23489
-NUM_ANCHORING_SAMPLES = 2  # Number of random samples for anchoring mitigation
-NUM_TRIALS = 2
-NUM_INITIAL_SAMPLES = 2
+NUM_ANCHORING_SAMPLES = 3  # Number of random samples for anchoring mitigation
+NUM_TRIALS = 5
+NUM_INITIAL_SAMPLES = 4
 IAL_K_LEVELS = 6  # Image Aesthetics Loss K-levels (original: 8; smaller is faster)
 IAL_ITERATIONS = 3  # Image Aesthetics Loss Domain Transform Filter Iterations (original: 5; smaller is faster)
 DOWNSAMPLING_SIZE = 64
@@ -321,6 +321,12 @@ class ImageTuner:
         logger.info(f"--- Starting Anchoring Mitigation Phase ({self.config.num_anchoring_samples} samples) ---")
         logger.info("You will now rate a few random image modifications to get familiar with the range.")
         logger.info("These ratings WILL NOT be used for the optimization process.")
+
+        # Set the renderer to training
+        def set_renderer_training_mode(new_value: bool):
+            if hasattr(human_evaluator.renderer, "is_training"):
+                human_evaluator.renderer.is_training = new_value
+        set_renderer_training_mode(True)
         
         # Generate random samples within bounds
         sobol_engine = SobolEngine(dimension=dim, scramble=True, seed=self.config.seed)
@@ -335,6 +341,10 @@ class ImageTuner:
                 logger.info(f"Received anchoring rating {i+1}/{self.config.num_anchoring_samples}: {rating.item():.4f}")
             except Exception as e:
                 logger.error(f"Error during anchoring sample {i+1}: {str(e)}")
+                set_renderer_training_mode(False)
+
+        # Set the renderer back
+        set_renderer_training_mode(False)
         
         logger.info("--- Anchoring Mitigation Phase Complete ---")
     
