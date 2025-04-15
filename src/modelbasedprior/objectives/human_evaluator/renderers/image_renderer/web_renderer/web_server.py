@@ -210,7 +210,7 @@ def generate_html(has_target_image: bool, is_training: bool = False):
     </head>
     <body>
         <div class="container">
-            <h2>{% if is_training %}Training: {% endif %}Rate the {% if has_target_image %}Similarity to the Target{% endif %}Image</h2>
+            <h2>{% if is_training %}Training: {% endif %}Rate the {% if has_target_image %}Similarity to the Target {% endif %}Image</h2>
             <div class="image-container">
                 <figure>
                     <img src="/image" alt="Generated Image" width="256" />

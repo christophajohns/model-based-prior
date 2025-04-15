@@ -52,6 +52,12 @@ python scripts/image_tuning_app.py
 
 This will let you interactively optimize the image to fit to a target tuning for your provided image.
 
+If you want to run this test with a remote participant, you can use tools like [NGROK](https://ngrok.com/docs/getting-started/) to expose your local server to the web:
+
+```bash
+ngrok http http://localhost:8000
+```
+
 ## Replication
 
 You can replicate the experiments and figures used in our paper.
