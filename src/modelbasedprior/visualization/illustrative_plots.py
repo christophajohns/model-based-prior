@@ -486,7 +486,7 @@ def initial_samples_plot() -> Tuple[plt.Figure, plt.Axes]:
 
     return fig, axes
 
-def colabo_robustness_plot(seed: int | None = 2768) -> Tuple[plt.Figure, plt.Axes]:
+def colabo_robustness_plot(seed: int | None = 256) -> Tuple[plt.Figure, plt.Axes]:
     def plot_objective_function(
             ax: plt.Axes,
             objective = Shekel1D(negate=True),
@@ -598,6 +598,7 @@ def colabo_robustness_plot(seed: int | None = 2768) -> Tuple[plt.Figure, plt.Axe
             num_resampling_paths: int = 4096,
             max_num_paths_to_plot: int = 5,
             x_samples_normalized = [0.1, 0.4, 0.8],
+            plot_acqf_max: bool = False,
         ):
         # Plot optima
         ax.axvline(objective._optimizers[0][0], color="lightgray", linestyle=":")  # label=r"$x^*$"
@@ -690,6 +691,9 @@ def colabo_robustness_plot(seed: int | None = 2768) -> Tuple[plt.Figure, plt.Axe
         ax_acq_func.plot(x, detach(ei_uniform_norm), label=r"$\alpha(x)$", linestyle="dashdot", color="gray")
         ax_acq_func.plot(x, detach(ei_norm), label=r"$\alpha_{\pi_{\hat{f}}} (x)$", color="k")
 
+        if plot_acqf_max:
+            ax_acq_func.scatter(x[ei_norm.argmax()], ei_norm.max(), color="r", label=r"$\max_x \alpha_{\pi_{\hat{f}}} (x)$")
+
         ax_acq_func.legend(loc="upper left")
 
         ax_acq_func.set_xlabel(r"$x$")
@@ -710,15 +714,15 @@ def colabo_robustness_plot(seed: int | None = 2768) -> Tuple[plt.Figure, plt.Axe
     objective = Shekel1D(negate=True)
     prior_predictor = Shekel1DNoGlobal(negate=True)
     prior_predictor_optimizers = prior_predictor._optimizers
-    x_samples_normalized = [0.01, 0.34, 0.46, 0.6, 0.8, 0.99] # + torch.linspace(0, 1, 20).numpy().tolist()
+    x_samples_normalized = [0.81, 0.09, 0.52, 0.79, 0.0, 1.0] # + torch.linspace(0, 1, 20).numpy().tolist()
     # plot_objective_function(ax_obj, objective=objective)
     plot_objective_vs_prior_func(ax_prior_func_vs_obj, objective=objective, prior_predictor=prior_predictor, prior_predictor_optimizers=prior_predictor_optimizers)
-    temp = 0.01
+    temp = .1
     plot_prior(ax_prior, temperature=temp, objective=objective, prior_predictor=prior_predictor, prior_predictor_optimizers=prior_predictor_optimizers)
     num_paths = 2**16
     num_resampling_paths = 2**16
     max_num_paths_to_plot = 0
-    plot_surrogate(ax_surrogate, ax_acq_func=ax_acqf, temperature=temp, objective=objective, prior_predictor=prior_predictor, prior_predictor_optimizers=prior_predictor_optimizers, x_samples_normalized=x_samples_normalized, num_paths=num_paths, num_resampling_paths=num_resampling_paths, max_num_paths_to_plot=max_num_paths_to_plot)
+    plot_surrogate(ax_surrogate, ax_acq_func=ax_acqf, temperature=temp, objective=objective, prior_predictor=prior_predictor, prior_predictor_optimizers=prior_predictor_optimizers, x_samples_normalized=x_samples_normalized, num_paths=num_paths, num_resampling_paths=num_resampling_paths, max_num_paths_to_plot=max_num_paths_to_plot, seed=seed)
 
     for ax in axes:
         ax.spines['top'].set_visible(False)
@@ -943,8 +947,8 @@ def main():
         # (scatter_quality_plot, 'scatter_quality.png'),
         # (prior_temperature_plot, 'prior_temperature.png'),
         # (initial_samples_plot, 'initial_samples.png'),
-        # (colabo_robustness_plot, 'colabo_robustness.png'),
-        (pibo_normalization_plot, 'pibo_normalization.png'),
+        (colabo_robustness_plot, 'colabo_robustness.png'),
+        # (pibo_normalization_plot, 'pibo_normalization.png'),
     ]:
         fig, ax = plot_func()
         fig.savefig(os.path.join(plots_dir, filename), dpi=300, bbox_inches='tight')
