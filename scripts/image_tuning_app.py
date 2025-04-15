@@ -22,6 +22,7 @@ import matplotlib.pyplot as plt
 from torchvision.io import read_image, ImageReadMode
 from torchvision.transforms.functional import resize
 from botorch.utils.transforms import unnormalize
+from botorch.acquisition.prior_monte_carlo import qPriorLogExpectedImprovement
 from torch.quasirandom import SobolEngine
 
 # Import project-specific modules
@@ -30,9 +31,11 @@ from modelbasedprior.objectives import HumanEvaluatorObjective
 from modelbasedprior.objectives.image_similarity import ImageSimilarityLoss, generate_image
 from modelbasedprior.objectives.image_aesthetics import ImageAestheticsLoss
 from modelbasedprior.logger import setup_logger
-from modelbasedprior.optimization.bo import maximize
+from modelbasedprior.optimization.bo import maximize as bo_maximize
+from modelbasedprior.optimization.prior_sampling import maximize as prior_sampling_maximize
 from modelbasedprior.objectives.human_evaluator.renderers import WebImageHumanEvaluatorRenderer
 from modelbasedprior.visualization.visualization import make_grid, show_images
+from modelbasedprior.benchmarking.runner import pibo_factory
 
 # Default values
 SMOKE_TEST = False  # Set to True to use a synthetic function instead of an actual human evaluator
@@ -40,13 +43,15 @@ DEFAULT_IMAGE_DIR = os.getenv("AVA_FLOWERS_DIR")  # image directory
 IMAGE_IDS = ["43405", "117679", "189197", "953980", "735492"]  # Example IDs
 DEFAULT_SAVE_DIR = os.getenv("IMAGE_TUNING_SAVE_DIR", "./image_tuning_results") # Resolve env var or use default "./image_tuning_results"
 DEFAULT_PARTICIPANT_ID = 99999
-OPTIMAL_CONFIGURATION = None  # (0.8, 1.2, 1.2, 0.1)  # brightness, contrast, saturation, hue OR None
+OPTIMAL_CONFIGURATION = (0.8, 1.2, 1.2, 0.1) # None  # (0.8, 1.2, 1.2, 0.1)  # brightness, contrast, saturation, hue OR None
 SEED = 23489
-NUM_ANCHORING_SAMPLES = 3  # Number of random samples for anchoring mitigation
-NUM_TRIALS = 5
+NUM_ANCHORING_SAMPLES = 10  # Number of random samples for anchoring mitigation
+NUM_TRIALS = 30
 NUM_INITIAL_SAMPLES = 4
-IAL_K_LEVELS = 6  # Image Aesthetics Loss K-levels (original: 8; smaller is faster)
-IAL_ITERATIONS = 3  # Image Aesthetics Loss Domain Transform Filter Iterations (original: 5; smaller is faster)
+OPTIMIZATION_METHOD = "ColaBO" # "piBO", "PriorSampling", "ConventionalBO"
+NUM_PATHS = 1024
+IAL_K_LEVELS = 8  # Image Aesthetics Loss K-levels (original: 8; smaller is faster)
+IAL_ITERATIONS = 5  # Image Aesthetics Loss Domain Transform Filter Iterations (original: 5; smaller is faster)
 DOWNSAMPLING_SIZE = 64
 
 # Configure logging
@@ -64,6 +69,8 @@ class ImageTuningConfig:
         self.num_anchoring_samples = NUM_ANCHORING_SAMPLES
         self.num_trials = NUM_TRIALS
         self.num_initial_samples = NUM_INITIAL_SAMPLES
+        self.optimization_method = OPTIMIZATION_METHOD
+        self.num_paths = NUM_PATHS
         self.ial_k_levels = IAL_K_LEVELS
         self.ial_iterations = IAL_ITERATIONS
         self.downsampling_size = DOWNSAMPLING_SIZE
@@ -87,6 +94,8 @@ class ImageTuningConfig:
             num_anchoring_samples=args.num_anchoring_samples,
             num_trials=args.num_trials,
             num_initial_samples=args.num_initial_samples,
+            optimization_method=args.optimization_method,
+            num_paths=args.num_paths,
             ial_k_levels=args.ial_k_levels,
             ial_iterations=args.ial_iterations,
             downsampling_size=args.downsampling_size,
@@ -206,7 +215,7 @@ class ImageTuner:
         try:
             # Load and preprocess image
             original_image = read_image(image_path, mode=ImageReadMode.RGB).to(self.device)
-            downsampled_original_image = resize(original_image, self.config.downsampling_size)
+            # downsampled_original_image = resize(original_image, self.config.downsampling_size)
             
             # Use random modification if provided, otherwise generate one
             if random_modification is None:
@@ -236,10 +245,10 @@ class ImageTuner:
                     device=self.device
                 )
                 target_image = generate_image(optimal_config_tensor, modified_image).squeeze()
-                downsampled_target_image = resize(target_image, self.config.downsampling_size)
+                # downsampled_target_image = resize(target_image, self.config.downsampling_size)
                 prior_predict_func = ImageSimilarityLoss(
-                    reference_image=downsampled_target_image, 
                     original_image=downsampled_modified_image, 
+                    optimizer=self.config.optimal_configuration,
                     weight_psnr=0.5, 
                     weight_ssim=0.5, 
                     negate=True
@@ -278,13 +287,31 @@ class ImageTuner:
             # Run Bayesian Optimization
             logger.info(f"--- Starting Bayesian Optimization ({self.config.num_trials} trials, "
                        f"{self.config.num_initial_samples} initial) ---")
-            result_X, result_y, model = maximize(
-                human_evaluator, 
-                user_prior=user_prior, 
-                num_trials=self.config.num_trials, 
-                num_initial_samples=self.config.num_initial_samples, 
-                logger=logger
-            )
+            if self.config.optimization_method == "PriorSampling":
+                result_X, result_y, model = prior_sampling_maximize(
+                    human_evaluator, 
+                    user_prior=user_prior, 
+                    num_trials=self.config.num_trials, 
+                    num_initial_samples=self.config.num_initial_samples, 
+                    seed=self.config.seed,
+                    logger=logger,
+                    num_paths=self.config.num_paths,
+                )
+            else:  # config.optimization_method in ["ColaBO", "piBO", "ConventionalBO"]
+                result_X, result_y, model = bo_maximize(
+                    human_evaluator, 
+                    user_prior=user_prior if self.config.optimization_method != "ConventionalBO" else None, 
+                    num_trials=self.config.num_trials, 
+                    num_initial_samples=self.config.num_initial_samples,
+                    seed=self.config.seed,
+                    num_paths=self.config.num_paths,
+                    logger=logger,
+                    acq_func_factory=pibo_factory if self.config.optimization_method == "piBO" else qPriorLogExpectedImprovement,
+                    acqf_func_kwargs=dict(
+                        resampling_fraction=0.5 if self.config.num_paths < 1024 else 256/self.config.num_paths,
+                        custom_decay=1.0,
+                    ),
+                )
             
             logger.info("--- Bayesian Optimization Complete ---")
             
@@ -610,6 +637,21 @@ def parse_args():
         type=int, 
         default=NUM_INITIAL_SAMPLES,
         help="Number of initial samples for Bayesian optimization"
+    )
+
+    parser.add_argument(
+        "--optimization-method", 
+        type=str, 
+        choices=["ColaBO", "piBO", "PriorSampling", "ConventionalBO"],
+        default="ColaBO",
+        help="Optimization method/prior injection technique"
+    )
+
+    parser.add_argument(
+        "--num-paths", 
+        type=int, 
+        default=NUM_PATHS,
+        help="Number of paths (surrogate samples) to draw from the Gaussian Process"
     )
     
     parser.add_argument(
