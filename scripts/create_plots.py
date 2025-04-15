@@ -20,6 +20,7 @@ from modelbasedprior.visualization.results_plots import (
     regret_by_technique_and_temperature,
     regret_by_technique_and_temperature_df,
     get_only_max_paths_for_colabo_df,
+    regret_image_tuning_plot,
 )
 
 load_dotenv(dotenv_path="../.env")
@@ -29,11 +30,11 @@ plots_dir = os.getenv('PLOTS_DIR')
 
 # Illustrative plots
 for plot_func, filename in [
-    # (sphere_plot, 'sphere.png'),
-    # (shekel_plot, 'shekel.png'),
-    # (scatter_quality_plot, 'scatter_quality.png'),
-    # (prior_temperature_plot, 'prior_temperature.png'),
-    # (initial_samples_plot, 'initial_samples.png'),
+    (sphere_plot, 'sphere.png'),
+    (shekel_plot, 'shekel.png'),
+    (scatter_quality_plot, 'scatter_quality.png'),
+    (prior_temperature_plot, 'prior_temperature.png'),
+    (initial_samples_plot, 'initial_samples.png'),
 ]:
     fig, ax = plot_func()
     fig.savefig(os.path.join(plots_dir, filename), dpi=300, bbox_inches='tight')
@@ -41,11 +42,11 @@ for plot_func, filename in [
 
 # Results plots
 for plot_func, filename in [
-    # (regret_sphere_plot, 'regret_sphere.png'),
+    (regret_sphere_plot, 'regret_sphere.png'),
     (regret_shekel_plot, 'regret_shekel.png'),
-    # (regret_image_similarity_plot, 'regret_image_similarity.png'),
-    # (regret_scatterplot_quality_plot, 'regret_scatterplot_quality.png'),
-    # (regret_mr_layout_quality_plot, 'regret_mr_layout_quality.png'),
+    (regret_image_similarity_plot, 'regret_image_similarity.png'),
+    (regret_scatterplot_quality_plot, 'regret_scatterplot_quality.png'),
+    (regret_mr_layout_quality_plot, 'regret_mr_layout_quality.png'),
 ]:
     fig, ax = plot_func(db)
     fig.tight_layout()
@@ -55,7 +56,7 @@ for optimization_type, objective_type in [
     # ('BO', 'Sphere'),
     # ('BO', 'SphereNoisy'),
     # ('PBO', 'Sphere'),
-    ('BO', 'Shekel'),
+    # ('BO', 'Shekel'),
     # ('BO', 'ImageSimilarity'),
     # ('PBO', 'ImageSimilarity'),
     # ('BO', 'ScatterPlotQuality'),
@@ -72,6 +73,24 @@ for optimization_type, objective_type in [
     fig.savefig(os.path.join(
         plots_dir,
         f'regret_{optimization_type}_{objective_type}.png'
+    ), dpi=300)
+
+image_tuning_results_dir = os.getenv("IMAGE_TUNING_SAVE_DIR", "./image_tuning_results")
+for task in [
+    "Aesthetics",
+    "Reference"
+]:
+    fig_img, ax_img = regret_image_tuning_plot(
+        base_save_dir=image_tuning_results_dir,
+        task=task,
+        optimal_value=10.0, # Max rating
+        # num_initial_samples=4, # Can often be inferred
+        # max_iterations_to_plot=30 # Set if needed
+    )
+    fig_img.tight_layout()
+    fig_img.savefig(os.path.join(
+        plots_dir,
+        f'regret_pilot_{task}.png'
     ), dpi=300)
 
 plt.show()
