@@ -43,19 +43,24 @@ DEFAULT_IMAGE_DIR = os.getenv("AVA_FLOWERS_DIR")  # image directory
 IMAGE_IDS = ["43405", "117679", "189197", "953980", "735492"]  # Example IDs
 DEFAULT_SAVE_DIR = os.getenv("IMAGE_TUNING_SAVE_DIR", "./image_tuning_results") # Resolve env var or use default "./image_tuning_results"
 DEFAULT_PARTICIPANT_ID = 99999
-OPTIMAL_CONFIGURATION = (0.8, 1.2, 1.2, 0.1) # None  # (0.8, 1.2, 1.2, 0.1)  # brightness, contrast, saturation, hue OR None
+OPTIMAL_CONFIGURATION = None  # (0.8, 1.2, 1.2, 0.1)  # brightness, contrast, saturation, hue OR None
 SEED = 23489
 NUM_ANCHORING_SAMPLES = 10  # Number of random samples for anchoring mitigation
 NUM_TRIALS = 30
 NUM_INITIAL_SAMPLES = 4
 OPTIMIZATION_METHOD = "ColaBO" # "piBO", "PriorSampling", "ConventionalBO"
 NUM_PATHS = 1024
-IAL_K_LEVELS = 8  # Image Aesthetics Loss K-levels (original: 8; smaller is faster)
-IAL_ITERATIONS = 5  # Image Aesthetics Loss Domain Transform Filter Iterations (original: 5; smaller is faster)
+IAL_K_LEVELS = 4  # Image Aesthetics Loss K-levels (original: 8; smaller is faster)
+IAL_ITERATIONS = 2  # Image Aesthetics Loss Domain Transform Filter Iterations (original: 5; smaller is faster)
 DOWNSAMPLING_SIZE = 64
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+
+def parse_tuple(string: str | None):
+    if string is None: return None
+    return tuple(map(float, string.split(',')))
 
 
 class ImageTuningConfig:
@@ -99,6 +104,7 @@ class ImageTuningConfig:
             ial_k_levels=args.ial_k_levels,
             ial_iterations=args.ial_iterations,
             downsampling_size=args.downsampling_size,
+            optimal_configuration=args.optimal_configuration,
             participant_id=args.participant_id,
             save_path=args.save_path # Pass the final determined path from main/args
         )
@@ -112,6 +118,12 @@ class ImageTuningConfig:
         if isinstance(config_dict.get('optimal_configuration'), tuple):
              config_dict['optimal_configuration'] = list(config_dict['optimal_configuration'])
         return config_dict
+    
+    @staticmethod
+    def get_condition_identifier(optimization_method: str, optimal_configuration: tuple | None) -> str:
+        """Generates a string identifier based on key experimental conditions."""
+        opt_config_status = "Reference" if optimal_configuration is not None else "Aesthetics"
+        return f"{optimization_method}_{opt_config_status}"
 
 
 class ImageTuner:
@@ -129,7 +141,7 @@ class ImageTuner:
                 logger.info(f"Ensured save directory exists: {self.config.save_path}")
 
                 # Save the configuration file for this run
-                config_filename = f"config_p{self.config.participant_id}_run.json"
+                config_filename = "config_run.json"
                 config_filepath = os.path.join(self.config.save_path, config_filename)
                 try:
                     with open(config_filepath, 'w') as f:
@@ -674,6 +686,14 @@ def parse_args():
         default=DOWNSAMPLING_SIZE,
         help="Size to downsample images to for internal processing"
     )
+
+    parser.add_argument(
+        "--optimal-configuration", 
+        type=parse_tuple, 
+        default=OPTIMAL_CONFIGURATION,
+        help="Optimal image tuning configuration for a reference image task (e.g., '1.0,1.1,0.9,0.4'; None for absolute aesthetic tuning)",
+        nargs="?",
+    )
     
     parser.add_argument(
         "--log-level", 
@@ -704,8 +724,10 @@ def main():
         # Determine Final Save Path
         base_save_dir = args.save_dir if args.save_dir is not None else DEFAULT_SAVE_DIR
         # Construct the full path including the participant ID subdir
-        participant_save_path = os.path.join(base_save_dir, f"participant_{args.participant_id}")
-        args.save_path = participant_save_path # Add the determined path to args temporarily for from_args
+        participant_base_path = os.path.join(base_save_dir, f"participant_{args.participant_id}")
+        condition_identifier = ImageTuningConfig.get_condition_identifier(args.optimization_method, args.optimal_configuration)
+        run_save_path = os.path.join(participant_base_path, condition_identifier)
+        args.save_path = run_save_path
 
         # Create configuration from args
         config = ImageTuningConfig.from_args(args)
