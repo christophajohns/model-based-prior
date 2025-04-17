@@ -40,7 +40,7 @@ from modelbasedprior.benchmarking.runner import pibo_factory
 # Default values
 SMOKE_TEST = False  # Set to True to use a synthetic function instead of an actual human evaluator
 DEFAULT_IMAGE_DIR = os.getenv("AVA_FLOWERS_DIR")  # image directory
-IMAGE_IDS = ["43405", "117679", "189197", "953980", "735492"]  # Example IDs
+IMAGE_IDS = ["43405"]  # ["43405", "117679", "189197", "953980", "735492"]  # Example IDs
 DEFAULT_SAVE_DIR = os.getenv("IMAGE_TUNING_SAVE_DIR", "./image_tuning_results") # Resolve env var or use default "./image_tuning_results"
 DEFAULT_PARTICIPANT_ID = 99999
 OPTIMAL_CONFIGURATION = None  # (0.8, 1.2, 1.2, 0.1)  # brightness, contrast, saturation, hue OR None
@@ -655,7 +655,7 @@ def parse_args():
         "--optimization-method", 
         type=str, 
         choices=["ColaBO", "piBO", "PriorSampling", "ConventionalBO"],
-        default="ColaBO",
+        default=OPTIMIZATION_METHOD,
         help="Optimization method/prior injection technique"
     )
 
