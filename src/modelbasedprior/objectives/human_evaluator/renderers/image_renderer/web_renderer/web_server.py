@@ -155,6 +155,10 @@ def generate_html(has_target_image: bool, is_training: bool = False):
                 margin-bottom: 1.5rem;
                 color: var(--text-color);
             }
+                        
+            .training-label {
+                color: var(--accent-color);
+            }
         </style>
         <script>
         document.addEventListener('DOMContentLoaded', function() {
@@ -210,7 +214,7 @@ def generate_html(has_target_image: bool, is_training: bool = False):
     </head>
     <body>
         <div class="container">
-            <h2>{% if is_training %}Training: {% endif %}Rate the {% if has_target_image %}Similarity to the Target {% endif %}Image</h2>
+            <h2>{% if is_training %}<span class="training-label">Training: </span>{% endif %}Rate the {% if has_target_image %}Similarity to the Target {% endif %}Image</h2>
             <div class="image-container">
                 <figure>
                     <img src="/image" alt="Generated Image" width="256" />
