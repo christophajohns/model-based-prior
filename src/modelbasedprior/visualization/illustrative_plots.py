@@ -3,6 +3,7 @@
 from typing import Tuple
 import os
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 import seaborn as sns
 import torch
 from botorch.utils.prior import normalize, unnormalize
@@ -937,6 +938,111 @@ def pibo_normalization_plot() -> Tuple[plt.Figure, plt.Axes]:
     return fig, axes
 
 
+def pibo_acquisition_plot() -> Tuple[plt.Figure, plt.Axes]:
+    num_iterations = 5
+    temperature = 1.0
+    baseline_temperatures = [0.1]
+    prior_offset = 4.0 # 0.05 or 4.0
+    seed = 42
+    beta = 1.0
+    surrogate_color = 'tab:blue'
+    num_priors = 2 + len(baseline_temperatures)
+    prior_colors = cm.plasma(torch.linspace(0.2, 0.8, num_priors)) # Use a subset of the colormap to avoid very light/dark ends
+    
+    # Setup
+    torch.manual_seed(seed)
+    objective = Sphere(dim=1, negate=True)
+    fig, axes = plt.subplots(3+len(baseline_temperatures), num_iterations + 1, figsize=((num_iterations + 1) * 2.5, 8), sharex=True)
+    X = torch.linspace(*detach(objective.bounds.T[0]), 101)
+
+    # Priors
+    predict_func = lambda x: objective(x - prior_offset)
+    user_prior = ModelBasedPrior(bounds=objective.bounds, predict_func=predict_func, temperature=temperature, seed=seed, minimize=False)
+    baseline_user_priors = {
+        f"{temp}": ModelBasedPrior(bounds=objective.bounds, predict_func=predict_func, temperature=temp, seed=seed, minimize=False)
+        for temp in baseline_temperatures
+    }
+    
+    # Initial model
+    init_X, init_y = generate_data_from_prior(objective=objective, user_prior=user_prior, n=1)
+    model = init_and_fit_model(init_X, init_y, objective.bounds)
+
+    # Plot priors
+    uniform_prior_ax = axes[1,0]
+    uniform_prior_ax.plot(detach(X), detach(torch.ones_like(X)), label=fr'Uniform', color='k')
+    default_prior_ax = axes[2,0]
+    y_default = torch.exp(user_prior.evaluate(normalize_X(X, objective.bounds))).squeeze()
+    default_prior_ax.plot(detach(X), detach(y_default), label=fr'$T={temperature}$', color='k')
+    y_baselines = {}
+    for i, (temp, prior) in enumerate(baseline_user_priors.items()):
+        y_baseline = torch.exp(prior.evaluate(normalize_X(X, objective.bounds))).squeeze()
+        axes[3+i,0].plot(detach(X), detach(y_baseline), label=fr'$T={temp}$', color='k')
+        y_baselines[f"{temp}"] = y_baseline
+
+    # Optimization iterations
+    for iteration in range(1, num_iterations+1):
+
+        # Plot surrogate
+        model.eval()
+        posterior = model.posterior(X.unsqueeze(dim=-1))
+        lower, upper = posterior.mvn.confidence_region()
+
+        posterior_ax = axes[0,iteration]
+        posterior_ax.plot(detach(X), detach(posterior.mean), color=surrogate_color)
+        posterior_ax.fill_between(detach(X), detach(lower), detach(upper), color=surrogate_color, alpha=0.1)
+        posterior_ax.plot(detach(init_X), detach(init_y), color='k', marker='*', linestyle='None', alpha=0.8)
+
+        # Plot acquisition function
+        acq_func = ExpectedImprovement(model=model, best_f=init_y.max())
+        with torch.no_grad():
+            ei = acq_func(X.unsqueeze(-1).unsqueeze(-1))
+            axes[1,iteration].plot(detach(X), detach(ei), color=prior_colors[0])
+            ei_default = ei * (y_default ** (beta / iteration))
+            axes[2,iteration].plot(detach(X), detach(ei_default), color=prior_colors[1])
+            for i, (temp, y_baseline) in enumerate(y_baselines.items()):
+                axes[3+i,iteration].plot(detach(X), detach(ei * (y_baseline ** (beta / iteration))), color=prior_colors[2+i])
+
+        # Find and plot max
+        next_X = X[torch.argmax(ei_default)].unsqueeze(0).unsqueeze(0)
+        # axes[2,iteration].plot(detach(next_X.squeeze()), detach(torch.max(ei_default)), 'ko')
+        axes[2,iteration].axvline(detach(next_X.squeeze()), linestyle='--', linewidth=0.8, color='k', alpha=0.3)
+
+        # Train model with new data
+        model.train()
+        init_X, init_y = make_new_data(init_X, init_y, next_X, objective)
+        model = init_and_fit_model(init_X, init_y, objective.bounds)
+
+    # Formatting
+    for ax in axes.flatten():
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.set_yticks([])
+
+    for ax in axes[1:,0]:
+        ax.legend(loc="upper left")
+        ax.set_ylabel(r'$\pi(x)$')
+
+    for ax in axes[1:,1]:
+        ax.set_ylabel(r'$\alpha(x)$')
+
+    for ax in axes[-1,:]:
+        ax.set_xlabel(r'$x$')
+
+    axes[0,1].set_ylabel(r'$f(x)$')
+    # axes[0,1].legend(["Mean", "Confidence", "Observed"])
+
+    for i, ax in enumerate(axes[0,1:]):
+        ax.set_title(f"Iteration {i+1}")
+
+    y_lim_low, y_lim_high = zip(*[ax.get_ylim() for ax in axes[0,1:]])
+    for ax in axes[0,:]:
+        ax.set_ylim(min(y_lim_low), max(y_lim_high))
+
+    axes[0,0].axis('off')
+
+    return fig, axes
+
+
 def main():
     """Create the illustrative plots for the paper."""
     plots_dir = os.getenv('PLOTS_DIR')
@@ -947,8 +1053,9 @@ def main():
         # (scatter_quality_plot, 'scatter_quality.png'),
         # (prior_temperature_plot, 'prior_temperature.png'),
         # (initial_samples_plot, 'initial_samples.png'),
-        (colabo_robustness_plot, 'colabo_robustness.png'),
+        # (colabo_robustness_plot, 'colabo_robustness.png'),
         # (pibo_normalization_plot, 'pibo_normalization.png'),
+        (pibo_acquisition_plot, 'pibo_acquisition.png'),
     ]:
         fig, ax = plot_func()
         fig.savefig(os.path.join(plots_dir, filename), dpi=300, bbox_inches='tight')
