@@ -1043,6 +1043,149 @@ def pibo_acquisition_plot() -> Tuple[plt.Figure, plt.Axes]:
     return fig, axes
 
 
+def colabo_acquisition_plot() -> Tuple[plt.Figure, plt.Axes]:
+    # --- Configuration ---
+    num_iterations = 5
+    temperature = 1.0
+    baseline_temperatures = [0.1]
+    prior_offset = 4.0
+    seed = 42
+    surrogate_color = 'tab:blue'
+    num_paths = 2048
+    num_resampling_paths = 512
+    
+    # --- Setup ---
+    torch.manual_seed(seed)
+    objective = Sphere(dim=1, negate=True)
+    num_priors = 2 + len(baseline_temperatures)
+    prior_colors = cm.plasma(torch.linspace(0.2, 0.8, num_priors))
+    
+    fig, axes = plt.subplots(
+        num_priors * 2, 
+        num_iterations + 1, 
+        figsize=((num_iterations + 1) * 2.5, 10), 
+        sharex=True
+    )
+    X_grid = torch.linspace(*detach(objective.bounds.T[0]), 101)
+
+    # --- Priors Definition ---
+    predict_func = lambda x: objective(x - prior_offset)
+    default_prior = ModelBasedPrior(
+        bounds=objective.bounds, predict_func=predict_func, temperature=temperature, seed=seed, minimize=False
+    )
+    baseline_priors = {
+        temp: ModelBasedPrior(
+            bounds=objective.bounds, predict_func=predict_func, temperature=temp, seed=seed, minimize=False
+        ) for temp in baseline_temperatures
+    }
+    
+    priors_config = [
+        {'name': 'Uniform', 'prior': None, 'color': prior_colors[0], 'row_idx': 0},
+        {'name': fr'$T={temperature}$', 'prior': default_prior, 'color': prior_colors[1], 'row_idx': 2},
+    ]
+    for i, temp in enumerate(baseline_temperatures):
+        priors_config.append(
+            {'name': fr'$T={temp}$', 'prior': baseline_priors[temp], 'color': prior_colors[2+i], 'row_idx': 4+2*i}
+        )
+
+    # --- Initial State (Column 0) ---
+    axes[0, 0].plot(detach(X_grid), detach(torch.ones_like(X_grid)), color='k', label='Uniform')
+    for config in priors_config[1:]: # Skip uniform
+        prior_density = torch.exp(config['prior'].evaluate(normalize_X(X_grid, objective.bounds))).squeeze()
+        axes[config['row_idx'], 0].plot(detach(X_grid), detach(prior_density), color='k', label=config['name'])
+
+    # --- Initial Data ---
+    train_X, train_y = generate_data_from_prior(objective=objective, user_prior=default_prior, n=1)
+
+    # --- Optimization Loop ---
+    for i in range(1, num_iterations + 1):
+        model = init_and_fit_model(train_X, train_y, objective.bounds)
+        paths = draw_matheron_paths(model=model, sample_shape=torch.Size([num_paths]))
+        sampler = PathwiseSampler(sample_shape=torch.Size([num_paths]), seed=seed)
+
+        acq_funcs = {}
+        for config in priors_config:
+            acq_funcs[config['name']] = qPriorExpectedImprovement(
+                model=model,
+                paths=paths,
+                sampler=sampler,
+                X_baseline=train_X,
+                user_prior=config['prior'],
+                resampling_fraction=num_resampling_paths / num_paths,
+                custom_decay=1.0,
+            )
+        
+        # --- Plot Surrogates and Acquisition Functions ---
+        with torch.no_grad():
+            for config in priors_config:
+                row_idx = config['row_idx']
+                acqf = acq_funcs[config['name']]
+                
+                # Plot Surrogate (Resampled Posterior)
+                ax_surrogate = axes[row_idx, i]
+                matheron_path = MatheronPath(acqf.sampling_model.paths.paths.prior_paths, acqf.sampling_model.paths.paths.update_paths)
+
+                samples = matheron_path(X_grid.unsqueeze(-1), subset=acqf.indices if config['name'] != 'Uniform' else None)
+                mean, std = samples.mean(dim=0), samples.std(dim=0)
+                
+                ax_surrogate.plot(detach(X_grid), detach(mean), color=surrogate_color)
+                ax_surrogate.fill_between(detach(X_grid), detach(mean - std), detach(mean + std), color=surrogate_color, alpha=0.1)
+                ax_surrogate.plot(detach(train_X), detach(acqf.sampling_model.train_targets), 'k*', linestyle='None')
+
+                # Plot Acquisition Function
+                ax_acqf = axes[row_idx + 1, i]
+                acqf_vals = acqf(X_grid.view(-1, 1, 1))
+                ax_acqf.plot(detach(X_grid), detach(acqf_vals), color=config['color'])
+        
+        # --- Select Next Point ---
+        default_acqf = acq_funcs[priors_config[1]['name']] # Based on T=1.0
+        default_acqf_vals = default_acqf(X_grid.view(-1, 1, 1))
+        next_x_val = X_grid[default_acqf_vals.argmax()]
+        next_X = next_x_val.unsqueeze(0).unsqueeze(0)
+        
+        # Mark chosen point on its acquisition function plot
+        axes[priors_config[1]['row_idx'] + 1, i].axvline(
+            detach(next_X.squeeze()), linestyle='--', linewidth=1.0, color='k', alpha=0.5
+        )
+
+        # --- Update Data for Next Iteration ---
+        train_X, train_y = make_new_data(train_X, train_y, next_X, objective)
+
+    # Formatting
+    for ax in axes.flatten():
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.set_yticks([])
+
+    for ax in axes[::2,0]:
+        ax.legend(loc="upper left")
+        ax.set_ylabel(r'$\pi(x)$')
+        ax.set_xlabel(r'$x$')
+
+    for ax in axes[::2, 1]:
+        ax.set_ylabel(r'$f(x)$')
+
+    for ax in axes[1::2, 1]:
+        ax.set_ylabel(r'$\alpha(x)$')
+
+    for ax in axes[-1,:]:
+        ax.set_xlabel(r'$x$')
+
+    for i, ax in enumerate(axes[0,1:]):
+        ax.set_title(f"Iteration {i+1}")
+
+    for row_idx in range(0,len(axes),2):
+        surrogate_axes = axes[row_idx,1:]
+        y_lim_low, y_lim_high = zip(*[ax.get_ylim() for ax in surrogate_axes])
+        for ax in surrogate_axes:
+            ax.set_ylim(min(y_lim_low), max(y_lim_high))
+
+    for ax in axes[1::2,0]:
+        ax.axis('off')
+
+    return fig, axes
+
+
 def main():
     """Create the illustrative plots for the paper."""
     plots_dir = os.getenv('PLOTS_DIR')
@@ -1055,13 +1198,14 @@ def main():
         # (initial_samples_plot, 'initial_samples.png'),
         # (colabo_robustness_plot, 'colabo_robustness.png'),
         # (pibo_normalization_plot, 'pibo_normalization.png'),
-        (pibo_acquisition_plot, 'pibo_acquisition.png'),
+        # (pibo_acquisition_plot, 'pibo_acquisition.png'),
+        (colabo_acquisition_plot, 'colabo_acquisition.png'),
     ]:
         fig, ax = plot_func()
         fig.savefig(os.path.join(plots_dir, filename), dpi=300, bbox_inches='tight')
         fig.tight_layout()
 
-    plt.show()
+    # plt.show()
 
 if __name__ == '__main__':
     main()
