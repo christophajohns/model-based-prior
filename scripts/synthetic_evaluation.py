@@ -115,7 +115,7 @@ optimization_methods = ["BO", "PBO", "PriorSampling"]
 injection_methods = ["None", "ColaBO", "piBO"]
 
 def generate_configs(
-        objectives = List[str],
+        objectives: List[str],
         prior_types: List[str] = prior_types,
         optimization_methods: List[str] = optimization_methods,
         injection_methods: List[str] = injection_methods,
@@ -141,7 +141,7 @@ def get_config_name(optimization_method: str, prior_type: str, prior_injection_m
         return f"{prior_injection_method}-MC-LogEI ({prior_type})"
     
 def get_configs(
-        objectives = List[str],
+        objectives: List[str],
         prior_types: List[str] = prior_types,
         optimization_methods: List[str] = optimization_methods,
         injection_methods: List[str] = injection_methods,

@@ -76,7 +76,7 @@ def plot_regret(ax: plt.Axes, df: pd.DataFrame, num_initial_samples: int = 4, sh
     ax.yaxis.set_major_locator(plt.MaxNLocator(5))
 
     # Add a grid
-    ax.grid(True, which='both', linestyle='--', alpha=0.5)
+    ax.grid(True, which='both', linestyle='-', alpha=0.3)
 
     # Add a legend
     ax.legend(loc='upper right')
@@ -152,18 +152,19 @@ def get_regret_data(
 def regret_sphere_plot(
         db: Database,
         prior_types_injection_method_and_descriptions: List[Tuple[str, str, str]] = [
-            ('None', 'None', 'MC-LogEI'),
-            ('Biased', 'ColaBO', 'ColaBO-MC-LogEI'),
-            ('Biased', 'piBO', r'$\pi$BO-MC-LogEI'),
+            ('None', 'None', 'ConventionalBO'),
+            ('Biased', 'ColaBO', 'ColaBO'),
+            ('Biased', 'piBO', r'$\pi$BO'),
         ],
         prior_sampling_injection_methods_and_descriptions: List[Tuple[str, str, str]] = [
-            ('Biased', 'None', 'Prior Sampling'),
+            ('Biased', 'None', 'PriorSampling'),
         ],
         optimization_and_objective_types: List[Tuple[str, str, str]] = [
             ('BO', 'Sphere', 'Sphere BO'),
             ('BO', 'SphereNoisy', 'Sphere BO (Noisy)'),
             ('PBO', 'Sphere', 'Sphere PBO'),
         ],
+        ax_size: Tuple[float, float] = (3.5, 3),
     ) -> Tuple[plt.Figure, plt.Axes]:
     """Create an illustration of the regret sphere plot."""
     # prior_types_injection_method_and_descriptions = [
@@ -211,7 +212,7 @@ def regret_sphere_plot(
         dfs[i] = df[df['iteration'] <= (max_iterations_to_plot + num_initial_samples)]
 
     # Create a figure
-    fig, axes = plt.subplots(1, len(dfs), figsize=(5 * len(dfs), 4), sharex=True)
+    fig, axes = plt.subplots(1, len(dfs), figsize=(ax_size[0] * len(dfs), ax_size[1]), sharex=True)
     if len(dfs) == 1: axes = [axes]  # Make sure that axes is iterable, even if only plotting a single optimization and objective combination
 
     # Plot the regret for each bias level
@@ -228,13 +229,13 @@ def regret_sphere_plot(
 
 def regret_shekel_plot(db: Database) -> Tuple[plt.Figure, plt.Axes]:
     """Create an illustration of the regret shekel plot."""
-    fig, ax = plt.subplots(1, 1, figsize=(5, 4))
+    fig, ax = plt.subplots(1, 1, figsize=(4.5, 3.5))
     prior_types_injection_method_and_descriptions = [
-        ('None', 'None', 'MC-LogEI'),
-        ('Biased', 'piBO', r'$\pi$BO-MC-LogEI'),
+        ('None', 'None', 'ConventionalBO'),
+        ('Biased', 'piBO', r'$\pi$BO'),
     ]
     prior_sampling_injection_methods_and_descriptions = [
-        ('Biased', 'None', 'Prior Sampling'),
+        ('Biased', 'None', 'PriorSampling'),
     ]
     # prior_types_injection_method_and_descriptions = [
     #     ('None', 'None', 'Uniform prior'),
@@ -277,7 +278,7 @@ def regret_shekel_plot(db: Database) -> Tuple[plt.Figure, plt.Axes]:
         optimization_type='BO',
         objective_type='Shekel',
         prior_types_injection_method_and_descriptions=[
-            ('Biased', 'ColaBO', 'ColaBO-MC-LogEI'),
+            ('Biased', 'ColaBO', 'ColaBO'),
         ],
         num_paths=65536,
     )
@@ -305,12 +306,12 @@ def regret_shekel_plot(db: Database) -> Tuple[plt.Figure, plt.Axes]:
 def regret_image_similarity_plot(
         db: Database,
         prior_types_injection_method_and_descriptions: List[Tuple[str, str, str]] = [
-            ('None', 'None', 'MC-LogEI'),
-            ('Biased', 'ColaBO', 'ColaBO-MC-LogEI'),
-            ('Biased', 'piBO', r'$\pi$BO-MC-LogEI'),
+            ('None', 'None', 'ConventionalBO'),
+            ('Biased', 'ColaBO', 'ColaBO'),
+            ('Biased', 'piBO', r'$\pi$BO'),
         ],
         prior_sampling_injection_methods_and_descriptions: List[Tuple[str, str, str]] = [
-            ('Biased', 'None', 'Prior Sampling'),
+            ('Biased', 'None', 'PriorSampling'),
         ],
         optimization_types: List[str] = ['BO', 'PBO'],
     ) -> Tuple[plt.Figure, plt.Axes]:
@@ -379,12 +380,12 @@ def regret_scatterplot_quality_plot(db: Database) -> Tuple[plt.Figure, plt.Axes]
     """Create an illustration of the regret scatterplot quality plot."""
     fig, ax = plt.subplots(1, 1, figsize=(5, 4))
     prior_types_injection_method_and_descriptions = [
-        ('None', 'None', 'MC-LogEI'),
-        ('Biased', 'ColaBO', 'ColaBO-MC-LogEI'),
-        ('Biased', 'piBO', r'$\pi$BO-MC-LogEI'),
+        ('None', 'None', 'ConventionalBO'),
+        ('Biased', 'ColaBO', 'ColaBO'),
+        ('Biased', 'piBO', r'$\pi$BO'),
     ]
     prior_sampling_injection_methods_and_descriptions = [
-        ('Biased', 'None', 'Prior Sampling'),
+        ('Biased', 'None', 'PriorSampling'),
     ]
     # prior_types_injection_method_and_descriptions = [
     #     ('None', 'None', 'Uniform prior'),
@@ -432,12 +433,12 @@ def regret_mr_layout_quality_plot(db: Database) -> Tuple[plt.Figure, plt.Axes]:
     """Create an illustration of the regret MR layout quality plot."""
     fig, ax = plt.subplots(1, 1, figsize=(5, 4))
     prior_types_injection_method_and_descriptions = [
-        ('None', 'None', 'MC-LogEI'),
-        ('Biased', 'ColaBO', 'ColaBO-MC-LogEI'),
-        ('Biased', 'piBO', r'$\pi$BO-MC-LogEI'),
+        ('None', 'None', 'ConventionalBO'),
+        ('Biased', 'ColaBO', 'ColaBO'),
+        ('Biased', 'piBO', r'$\pi$BO'),
     ]
     prior_sampling_injection_methods_and_descriptions = [
-        ('Biased', 'None', 'Prior Sampling'),
+        ('Biased', 'None', 'PriorSampling'),
     ]
     # prior_types_injection_method_and_descriptions = [
     #     ('None', 'None', 'Uniform prior'),
@@ -765,7 +766,7 @@ def regret_image_tuning_plot(
     max_iterations_to_plot: int | None = None,
     shaded_area: Literal['min_max', 'iqr'] | None = 'iqr',
     title: str = "Image Tuning Regret",
-    figsize: Tuple[int, int] = (7, 5)
+    figsize: Tuple[int, int] = (5, 4)
 ) -> Tuple[plt.Figure, plt.Axes]:
     """
     Loads image tuning data and plots the aggregated regret over iterations.
@@ -822,6 +823,9 @@ def regret_image_tuning_plot(
         fig, ax = plt.subplots(figsize=figsize)
         ax.set_title(f"{title} (Aggregation Failed)")
         return fig, ax
+    
+    # Rename piBO
+    df_plot["label"] = df_plot["label"].replace("piBO", r"$\pi$BO")
 
     # Create the plot
     fig, ax = plt.subplots(figsize=figsize)

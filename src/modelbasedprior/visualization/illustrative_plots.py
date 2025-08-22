@@ -35,7 +35,7 @@ def normalize_X(X, bounds):
 def sphere_plot() -> Tuple[plt.Figure, plt.Axes]:
     """Create an illustration of the Sphere objective
     and the prior belief as the shifted Sphere objective."""
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(2,2))
 
     # Create a grid
     x_limits = (-0.75, 1.2)
@@ -44,7 +44,7 @@ def sphere_plot() -> Tuple[plt.Figure, plt.Axes]:
     X = torch.stack([X1.flatten(), X2.flatten()], dim=-1)
 
     # Set contour levels
-    levels = torch.linspace(0, 0.4, 6)
+    levels = torch.linspace(0, 0.4, 5)
 
     # Create a contour plot of the Sphere objective
     sphere_function = Sphere(dim=2)
@@ -67,15 +67,19 @@ def sphere_plot() -> Tuple[plt.Figure, plt.Axes]:
     ax.plot(*optimum_prior, 'ko', label='Global minimum shifted', markersize=2, fillstyle='none')
 
     # Label the global minima
-    ax.text(*optimum_objective, r'$x^*$', verticalalignment='top', horizontalalignment='center')
-    ax.text(*optimum_prior, r'$x^*_{\text{prior}}$', verticalalignment='bottom', horizontalalignment='center')
+    optimum_objective_text = (optimum_objective[0], optimum_objective[1] - 0.1)
+    ax.text(*optimum_objective_text, r'$x^*$', verticalalignment='top', horizontalalignment='center',
+            bbox=dict(boxstyle='circle,pad=0.2', mutation_aspect=0.8, fc='white', ec='none'))
+    optimum_prior_text = (optimum_prior[0], optimum_prior[1] + 0.05)
+    ax.text(*optimum_prior_text, r'$x^*_{\text{prior}}$', verticalalignment='bottom', horizontalalignment='center',
+            bbox=dict(boxstyle='circle,pad=0.2', mutation_aspect=0.5, fc='white', ec='none'))
 
     # Denote the distance between the minima
     # and label it as delta
-    ax.annotate('', xy=optimum_objective, xytext=optimum_prior,
-                arrowprops=dict(arrowstyle='<->', lw=1), zorder=1)
-    ax.text(0.25, 0.25, r'$\Delta$', verticalalignment='center', horizontalalignment='center',
-            bbox=dict(facecolor='white', edgecolor='none', pad=2), zorder=1)
+    # ax.annotate('', xy=optimum_objective, xytext=optimum_prior,
+    #             arrowprops=dict(arrowstyle='<->', lw=1), zorder=1)
+    # ax.text(0.25, 0.25, r'$\Delta$', verticalalignment='center', horizontalalignment='center',
+    #         bbox=dict(facecolor='white', edgecolor='none', pad=2), zorder=1)
 
     # Remove ticks
     ax.set_xticks([])
@@ -97,7 +101,7 @@ def shekel_plot() -> Tuple[plt.Figure, plt.Axes]:
     without the global minimum."""
     # Create a figure with two subplots side by side
     # that share the axes
-    fig, axes = plt.subplots(1, 2, figsize=(10, 5), sharey=True, sharex=True)
+    fig, axes = plt.subplots(1, 2, figsize=(4, 2), sharey=True, sharex=True)
 
     shekel_function = Shekel2D(negate=True)
 
@@ -110,18 +114,19 @@ def shekel_plot() -> Tuple[plt.Figure, plt.Axes]:
     X = torch.stack([X1.flatten(), X2.flatten()], dim=-1)
 
     # Set contour levels
-    levels = torch.linspace(0, 11, 20)
+    levels = torch.linspace(0, 3, 6)
+    contour_line_width = 0.5
 
     # Create a contour plot of the Shekel objective
     Y = shekel_function(X).reshape(X1.shape)
-    contours = axes[0].contour(X1, X2, Y, levels=levels, colors='black')
+    contours = axes[0].contour(X1, X2, Y, levels=levels, colors='black', linewidths=contour_line_width)
     # axes[0].clabel(contours, inline=True, fontsize=8)
 
     # Create a contour plot of the prior belief
     # as Shekel(x) without the global minimum
     shekel_function_no_global = Shekel2DNoGlobal(negate=True)
     Y_no_global = shekel_function_no_global(X).reshape(X1.shape)
-    contours_prior = axes[1].contour(X1, X2, Y_no_global, levels=levels, colors='grey', linestyles='dashed')
+    contours_prior = axes[1].contour(X1, X2, Y_no_global, levels=levels, colors='grey', linestyles='dashed', linewidths=contour_line_width)
     # axes[1].clabel(contours_prior, inline=True, fontsize=8)
 
     # Add the global minimum
@@ -130,10 +135,11 @@ def shekel_plot() -> Tuple[plt.Figure, plt.Axes]:
         ax.plot(*optimum, 'ro', label=r'x^*', markersize=4)
 
     # Label the global minimum
-    def annotate_optimum(ax, offset = (-1.7, -1.7)):
+    def annotate_optimum(ax, offset = (-2, -2)):
         text_position = (optimum[0] + offset[0], optimum[1] + offset[1])
         ax.annotate(r'$x^*$', xy=optimum, xytext=text_position,
                     arrowprops=dict(facecolor='red', edgecolor='none', shrink=0.05, width=2, headwidth=10),
+                    bbox=dict(boxstyle='circle,pad=0.2', mutation_aspect=0.7, fc='white', ec='none'),
                     verticalalignment='center', horizontalalignment='center')
     annotate_optimum(axes[0])
     annotate_optimum(axes[1])
@@ -147,8 +153,8 @@ def shekel_plot() -> Tuple[plt.Figure, plt.Axes]:
     # Label the axes as x1 and x2
     axes[0].set_xlabel(r'$x_1$')
     axes[0].set_ylabel(r'$x_2$')
-    # axes[1].set_xlabel(r'$x_1$')
-    # axes[1].set_ylabel(r'$x_2$')
+    axes[1].set_xlabel(r'$x_1$')
+    axes[1].set_ylabel(r'$x_2$')
 
     # Remove the box
     for ax in axes:
@@ -163,12 +169,12 @@ def scatter_quality_plot() -> Tuple[plt.Figure, plt.Axes]:
     quality) and the effect of the overplotting weight
     to illustrate the prior."""
     # Create a figure with four subplots
-    fig, axes = plt.subplots(1, 4, figsize=(16, 4))
+    fig, axes = plt.subplots(2, 2, figsize=(6, 6))
 
-    for ax, label in zip(axes[:2], ['High objective value', 'Low objective value']):
+    for ax, label in zip(axes[0], ['High objective value', 'Low objective value']):
         ax.set_title(label)
 
-    for ax, label in zip(axes[2:], ['Low overplotting', 'High overplotting']):
+    for ax, label in zip(axes[1], ['Low overplotting', 'High overplotting']):
         ax.set_title(label)
 
     # Load the Cars dataset
@@ -177,25 +183,24 @@ def scatter_quality_plot() -> Tuple[plt.Figure, plt.Axes]:
     y_data = torch.tensor(df['mpg'].values, dtype=torch.float32)
 
     # Label the axes
-    for ax in axes:
+    for ax in axes.flatten():
         ax.set_xlabel('horsepower')
         ax.set_ylabel('mpg')
 
     # Remove the box
-    for ax in axes:
+    for ax in axes.flatten():
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
 
     # Add the scatter plot
-    good_marker_size = 15
-    bad_marker_size = 50
-    good_marker_opacity = 40
-    bad_marker_opacity = 240
-    axes[0].scatter(x_data, y_data, s=good_marker_size, c='black', alpha=good_marker_opacity / 255.0)
-    axes[1].scatter(x_data, y_data, s=bad_marker_size, c='black', alpha=bad_marker_opacity / 255.0)
-    axes[1].set_xlim(0, 750)
-    axes[2].scatter(x_data, y_data, s=200, c='black', alpha=0.05)
-    axes[3].scatter(x_data, y_data, s=200, c='black', alpha=0.95)
+    good_marker_size = 12
+    bad_marker_size = 64
+    good_marker_opacity = 32
+    bad_marker_opacity = 120
+    axes[0,0].scatter(x_data, y_data, s=good_marker_size, c='black', alpha=good_marker_opacity / 255.0)
+    axes[0,1].scatter(x_data, y_data, s=bad_marker_size, c='black', alpha=bad_marker_opacity / 255.0)
+    axes[1,0].scatter(x_data, y_data, s=bad_marker_size, c='black', alpha=0.05)
+    axes[1,1].scatter(x_data, y_data, s=bad_marker_size, c='black', alpha=0.9)
 
     # Evalute the ScatterPlotQualityLoss
     # scatter_quality_loss = ScatterPlotQualityLoss(x_data=x_data, y_data=y_data, negate=True)
@@ -203,6 +208,10 @@ def scatter_quality_plot() -> Tuple[plt.Figure, plt.Axes]:
     #            for marker_size, marker_opacity in [(good_marker_size, good_marker_opacity),
     #                                                 (bad_marker_size, bad_marker_opacity)]]
     # print([rating.item() for rating in ratings])
+
+    axes[0,1].set_box_aspect(2)
+
+    fig.tight_layout(h_pad=1.5)
 
     return fig, axes
 
@@ -229,9 +238,9 @@ def prior_temperature_plot() -> Tuple[plt.Figure, plt.Axes]:
     prior_funcs = [
         ('Sphere', lambda x: sphere(x - 0.5), sphere.bounds),
         ('Shekel', shekel, shekel.bounds),
-        ('Image Similarity', image_similarity, image_similarity.bounds),
-        ('MR Layout Quality', mr_layout_quality, mr_layout_quality.bounds),
-        ('Scatter Plot Quality', scatterplot_quality, scatterplot_quality.bounds),
+        ('Image Simil.', image_similarity, image_similarity.bounds),
+        ('MR Layout', mr_layout_quality, mr_layout_quality.bounds),
+        ('Scatter Plot', scatterplot_quality, scatterplot_quality.bounds),
     ]
 
     def normalized_boltzmann(prior_func, temperature, bounds):
@@ -249,7 +258,8 @@ def prior_temperature_plot() -> Tuple[plt.Figure, plt.Axes]:
         # ('Softsign', lambda prior_func, temperature, *args: lambda x: torch.nn.functional.softsign(prior_func(x) / temperature) + torch.tensor(1.)),
     ]
     temperatures = [0.5, 1.0, 5.0, 10.0, 100.0]
-    fig, axes = plt.subplots(len(transformations) + 1, len(prior_funcs) + 1, figsize=((len(prior_funcs) + 1) * 2, (len(transformations) + 1) * 2), layout='constrained')
+    fig, axes = plt.subplots(len(transformations) + 1, len(prior_funcs) + 1, figsize=((len(prior_funcs) + 1) * 1.4, (len(transformations) + 1) * 1.4), layout='constrained')
+    temperature_colors = cm.plasma(torch.linspace(0.1, 0.9, len(temperatures))) # Use a subset of the colormap to avoid very light/dark ends
 
     # First row: Prior functions
     axes[0, 0].axis("off")  # Empty top-left cell
@@ -264,7 +274,7 @@ def prior_temperature_plot() -> Tuple[plt.Figure, plt.Axes]:
             x[:, i] = (lower_bound + upper_bound) / 2
 
         y_pred = prior_func(x)
-        ax.plot(x[:, 0], y_pred, label="Prior Function")
+        ax.plot(x[:, 0], y_pred, label="Prior Function", color="k")
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
         ax.set_yticks([])
@@ -280,9 +290,9 @@ def prior_temperature_plot() -> Tuple[plt.Figure, plt.Axes]:
         bounds = (-5., 5.)
         x = torch.linspace(*bounds, 100)
         y = prob(lambda x: x, 1.0, torch.tensor([bounds]).T)(x)
-        ax.plot(x, y, label='__nolabel__')
+        ax.plot(x, y, label='__nolabel__', color="tab:blue")
 
-        for temperature in temperatures:
+        for temp_idx, temperature in enumerate(temperatures):
             for (prior_name, prior_func, bounds), ax in zip(prior_funcs, axes[row, 1:]):
 
                 # Create an x-vector where only the first dimension is linearly spaced
@@ -299,7 +309,7 @@ def prior_temperature_plot() -> Tuple[plt.Figure, plt.Axes]:
                 y_scaled = y / torch.sum(y, dim=0)
 
                 x_1d = x if x.size()[1] == 1 else x[:, 0]
-                ax.plot(x_1d, y_scaled, label=fr'$T = {temperature}$')
+                ax.plot(x_1d, y_scaled, label=fr'$T = {temperature}$', color=temperature_colors[temp_idx])
 
                 ax.spines['top'].set_visible(False)
                 ax.spines['right'].set_visible(False)
@@ -310,8 +320,11 @@ def prior_temperature_plot() -> Tuple[plt.Figure, plt.Axes]:
     for ax, (prior_name, _prior_func, _bounds) in zip(axes[0, 1:], prior_funcs):  # Only the first row
         ax.set_title(prior_name)
     
-    for ax in axes[-1][1:]:  # Only the last row
-        ax.set_xlabel(r'$x_1 \mid x_i = \frac{x_i^\text{min} + x_i^\text{max}}{2} \forall i > 1$')
+    for ax in axes[-1]:
+        ax.set_xlabel(r'$x_1$')
+    # axes[-1,1].set_xlabel(r'$x_1 \mid x_i = \frac{x_i^\text{min} + x_i^\text{max}}{2} \forall i > 1$')
+    # for ax in axes[-1][2:]:  # Only the last row
+    #     ax.set_xlabel(r'$x_1 \mid \ldots$')
     axes[-1][0].set_xlabel(r'$\hat f(x)$')
 
     # Remove the x-axis labels for all but the last row and the first row
@@ -548,7 +561,10 @@ def colabo_robustness_plot(seed: int | None = 256) -> Tuple[plt.Figure, plt.Axes
         ax.plot(x, y_obj, color="lightgray", linestyle="--", label=r"$f(x)$")
         ax.plot(x, y_prior, color="k", label=r"$\hat{f}(x)$")
 
-        ax.legend(loc="upper left")
+        y_min, y_max = ax.get_ylim()
+        ax.set_ylim(y_min,y_min + 1.3 * (y_max - y_min))
+
+        ax.legend(loc="upper center", ncols=2, facecolor="white", framealpha=1.0, bbox_to_anchor=(0.5, 1.05))
 
         ax.set_xlabel(r"$x$")
         ax.set_ylabel(r"$\hat{f}(x)$")
@@ -581,7 +597,10 @@ def colabo_robustness_plot(seed: int | None = 256) -> Tuple[plt.Figure, plt.Axes
         ax.plot(x, y_obj_scaled, color="lightgray", linestyle="--", label=r"$\pi_f(x)$")
         ax.plot(x, y_pred_scaled, color="k", label=r"$\pi_{\hat{f}}(x)$")
 
-        ax.legend(loc="upper left")
+        y_min, y_max = ax.get_ylim()
+        ax.set_ylim(y_min,y_min + 1.3 * (y_max - y_min))
+
+        ax.legend(loc="upper center", ncols=2, facecolor="white", framealpha=1.0, bbox_to_anchor=(0.5, 1.04))
 
         ax.set_xlabel(r"$x$")
         ax.set_ylabel(r"$\pi(x)$")
@@ -665,9 +684,13 @@ def colabo_robustness_plot(seed: int | None = 256) -> Tuple[plt.Figure, plt.Axes
             ax.plot(detach(x), detach(prior_samples[path_idx]), color='gray', alpha=0.9, linewidth=0.3, label=r'$f_i \sim p(f \mid \mathcal{D}, \rho)$' if path_idx == 0 else '__nolabel__')
 
         # Plot samples
-        ax.scatter(detach(unnormalize(acq_func.sampling_model.train_inputs[0], objective.bounds)), detach(acq_func.sampling_model.train_targets), color="k", s=8, label=r"$\mathcal{D}$")
+        ax.scatter(detach(unnormalize(acq_func.sampling_model.train_inputs[0], objective.bounds)), detach(acq_func.sampling_model.train_targets), color="k", s=8, label=r"$\mathcal{D}$", zorder=99)
 
-        ax.legend(loc="upper left")
+        # ax.legend(loc="upper left")
+        y_min, y_max = ax.get_ylim()
+        ax.set_ylim(y_min,y_min + 1.4 * (y_max - y_min))
+
+        ax.legend(loc="upper center", ncols=2, facecolor="white", framealpha=1.0, bbox_to_anchor=(0.5, 1.05))
         
         ax.set_xlabel(r"$x$")
         ax.set_ylabel(r"$f(x)$")
@@ -697,16 +720,21 @@ def colabo_robustness_plot(seed: int | None = 256) -> Tuple[plt.Figure, plt.Axes
 
         ax_acq_func.legend(loc="upper left")
 
+        y_min, y_max = ax_acq_func.get_ylim()
+        ax_acq_func.set_ylim(y_min,y_min + 1.3 * (y_max - y_min))
+
+        ax_acq_func.legend(loc="upper center", ncols=3, facecolor="white", framealpha=1.0, bbox_to_anchor=(0.5, 1.04), columnspacing=0.9)
+
         ax_acq_func.set_xlabel(r"$x$")
         ax_acq_func.set_ylabel(r"$\alpha(x)$")
     
     if seed is not None: torch.manual_seed(seed)
-    fig, axes = plt.subplots(1, 4, figsize=(14, 3), sharex=True)
+    fig, axes = plt.subplots(2, 2, figsize=(7, 5), sharex=True)
     # ax_obj: plt.Axes = axes[0]
-    ax_prior_func_vs_obj: plt.Axes = axes[0]
-    ax_prior: plt.Axes = axes[1]
-    ax_surrogate: plt.Axes = axes[2]
-    ax_acqf: plt.Axes = axes[3]
+    ax_prior_func_vs_obj: plt.Axes = axes[0,0]
+    ax_prior: plt.Axes = axes[0,1]
+    ax_surrogate: plt.Axes = axes[1,0]
+    ax_acqf: plt.Axes = axes[1,1]
     # objective = Sphere(dim=1, negate=True)
     # offset = -4.0
     # prior_predictor = lambda x: objective(x - offset)
@@ -725,7 +753,7 @@ def colabo_robustness_plot(seed: int | None = 256) -> Tuple[plt.Figure, plt.Axes
     max_num_paths_to_plot = 0
     plot_surrogate(ax_surrogate, ax_acq_func=ax_acqf, temperature=temp, objective=objective, prior_predictor=prior_predictor, prior_predictor_optimizers=prior_predictor_optimizers, x_samples_normalized=x_samples_normalized, num_paths=num_paths, num_resampling_paths=num_resampling_paths, max_num_paths_to_plot=max_num_paths_to_plot, seed=seed)
 
-    for ax in axes:
+    for ax in axes.flatten():
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
 
@@ -740,7 +768,7 @@ def colabo_robustness_plot(seed: int | None = 256) -> Tuple[plt.Figure, plt.Axes
 
 
 def pibo_normalization_plot() -> Tuple[plt.Figure, plt.Axes]:
-    fig, axes = plt.subplots(1, 4, figsize=(15, 3), sharex=True)
+    fig, axes = plt.subplots(2, 2, figsize=(6, 5.5), sharex=True)
 
     def plot_prior_predict_func(
             ax: plt.Axes,
@@ -767,7 +795,9 @@ def pibo_normalization_plot() -> Tuple[plt.Figure, plt.Axes]:
         init_y = objective(init_x.unsqueeze(-1))
         ax.scatter(init_x, init_y, color="k", s=10, label=r"$\mathcal{D}$")
 
-        ax.legend(loc="upper center")
+        y_min, y_max = ax.get_ylim()
+        ax.set_ylim(y_min, y_min + (y_max-y_min) * 1.35)
+        ax.legend(loc='upper center', ncol=2, bbox_to_anchor=(0.5, 0.99))
 
         ax.set_xlabel(r"$x$")
         ax.set_ylabel(r"$\hat{f}(x)$")
@@ -791,7 +821,9 @@ def pibo_normalization_plot() -> Tuple[plt.Figure, plt.Axes]:
         ax.plot(x, y_norm, color="lightgray", linestyle=":", label=r"$\hat{f}_{\text{norm}}(x)$ (accurate)")
         ax.plot(x, y_hat_norm, color="k", label=r"$\hat{f}_{\text{norm}}(x)$ (inaccurate)")
 
-        ax.legend(loc="lower center")
+        y_min, y_max = ax.get_ylim()
+        ax.set_ylim(y_min, y_min + (y_max-y_min) * 1.35)
+        ax.legend(loc='upper center', ncol=1, bbox_to_anchor=(0.5, 1.04))
 
         ax.set_xlabel(r"$x$")
         ax.set_ylabel(r"$\hat{f}_{\text{norm}}(x)$")
@@ -849,7 +881,9 @@ def pibo_normalization_plot() -> Tuple[plt.Figure, plt.Axes]:
         ax.plot(x, y_obj_scaled, color="lightgray", linestyle=":", label=r"$\pi_{\hat{f}_{\text{norm}}}(x)$ (acc.)")
         ax.plot(x, y_hat_scaled, color="k", label=r"$\pi_{\hat{f}_{\text{norm}}}(x)$ (inacc.)")
 
-        ax.legend(loc="upper center")
+        y_min, y_max = ax.get_ylim()
+        ax.set_ylim(y_min, y_min + (y_max-y_min) * 1.35)
+        ax.legend(loc='upper center', ncol=1, bbox_to_anchor=(0.5, 1.04))
 
         ax.set_xlabel(r"$x$")
         ax.set_ylabel(r"$\pi(x)$")
@@ -908,7 +942,9 @@ def pibo_normalization_plot() -> Tuple[plt.Figure, plt.Axes]:
         ax.plot(x, detach(ei_obj_norm), color="lightgray", linestyle=":", label=r"$\alpha_{\pi_{\hat{f}_{\text{norm}}}}(x)$ (acc.)")
         ax.plot(x, detach(ei_hat_norm), color="k", label=r"$\alpha_{\pi_{\hat{f}_{\text{norm}}}}(x)$ (inacc.)")
 
-        ax.legend(loc="upper left")
+        y_min, y_max = ax.get_ylim()
+        ax.set_ylim(y_min, y_min + (y_max-y_min) * 1.35)
+        ax.legend(loc='upper center', ncol=1, bbox_to_anchor=(0.5, 1.04))
 
         ax.set_xlabel(r"$x$")
         ax.set_ylabel(r"$\alpha(x)$")
@@ -919,12 +955,12 @@ def pibo_normalization_plot() -> Tuple[plt.Figure, plt.Axes]:
     f_min_perc: float = 0.12
     f_max_perc: float = 0.8
     x_samples_normalized = [0.01, 0.34, 0.46, 0.6, 0.8, 0.99] # + torch.linspace(0, 1, 20).numpy().tolist()
-    plot_prior_predict_func(axes[0], x_samples_normalized=x_samples_normalized, objective=objective, f_min_perc=f_min_perc, f_max_perc=f_max_perc)
-    plot_normalized_prior_predict_func(axes[1], objective=objective, f_min_perc=f_min_perc, f_max_perc=f_max_perc)
-    plot_prior(axes[2], temperature=temperature, objective=objective, f_min_perc=f_min_perc, f_max_perc=f_max_perc)
-    plot_acqf_func(axes[3], temperature=temperature, x_samples_normalized=x_samples_normalized, objective=objective, f_min_perc=f_min_perc, f_max_perc=f_max_perc)
+    plot_prior_predict_func(axes[0,0], x_samples_normalized=x_samples_normalized, objective=objective, f_min_perc=f_min_perc, f_max_perc=f_max_perc)
+    plot_normalized_prior_predict_func(axes[0,1], objective=objective, f_min_perc=f_min_perc, f_max_perc=f_max_perc)
+    plot_prior(axes[1,0], temperature=temperature, objective=objective, f_min_perc=f_min_perc, f_max_perc=f_max_perc)
+    plot_acqf_func(axes[1,1], temperature=temperature, x_samples_normalized=x_samples_normalized, objective=objective, f_min_perc=f_min_perc, f_max_perc=f_max_perc)
 
-    for ax in axes:
+    for ax in axes.flatten():
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
 
@@ -934,6 +970,8 @@ def pibo_normalization_plot() -> Tuple[plt.Figure, plt.Axes]:
     # for ax in axes[:len(axes)-1]:
     #     ax: plt.Axes
     #     ax.set_xlabel("")
+
+    fig.tight_layout(h_pad=2.0)
 
     return fig, axes
 
@@ -952,7 +990,7 @@ def pibo_acquisition_plot() -> Tuple[plt.Figure, plt.Axes]:
     # Setup
     torch.manual_seed(seed)
     objective = Sphere(dim=1, negate=True)
-    fig, axes = plt.subplots(3+len(baseline_temperatures), num_iterations + 1, figsize=((num_iterations + 1) * 2.5, 8), sharex=True)
+    fig, axes = plt.subplots(3+len(baseline_temperatures), num_iterations + 1, figsize=((num_iterations + 1) * 1.5, 6), sharex=True)
     X = torch.linspace(*detach(objective.bounds.T[0]), 101)
 
     # Priors
@@ -1038,6 +1076,10 @@ def pibo_acquisition_plot() -> Tuple[plt.Figure, plt.Axes]:
     for ax in axes[0,:]:
         ax.set_ylim(min(y_lim_low), max(y_lim_high))
 
+    for ax in axes[:,0]:
+        y_min, y_max = ax.get_ylim()
+        ax.set_ylim(y_min, y_min + (y_max - y_min) * 1.5)
+
     axes[0,0].axis('off')
 
     return fig, axes
@@ -1063,7 +1105,7 @@ def colabo_acquisition_plot() -> Tuple[plt.Figure, plt.Axes]:
     fig, axes = plt.subplots(
         num_priors * 2, 
         num_iterations + 1, 
-        figsize=((num_iterations + 1) * 2.5, 10), 
+        figsize=((num_iterations + 1) * 1.5, 8), 
         sharex=True
     )
     X_grid = torch.linspace(*detach(objective.bounds.T[0]), 101)
@@ -1179,6 +1221,10 @@ def colabo_acquisition_plot() -> Tuple[plt.Figure, plt.Axes]:
         y_lim_low, y_lim_high = zip(*[ax.get_ylim() for ax in surrogate_axes])
         for ax in surrogate_axes:
             ax.set_ylim(min(y_lim_low), max(y_lim_high))
+
+    for ax in axes[:,0]:
+        y_min, y_max = ax.get_ylim()
+        ax.set_ylim(y_min, y_min + (y_max - y_min) * 1.6)
 
     for ax in axes[1::2,0]:
         ax.axis('off')
