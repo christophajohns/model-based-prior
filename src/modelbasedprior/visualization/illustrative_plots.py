@@ -11,6 +11,7 @@ from botorch.sampling.pathwise import MatheronPath, draw_matheron_paths
 from botorch.sampling.pathwise_sampler import PathwiseSampler
 from botorch.acquisition.prior_monte_carlo import qPriorExpectedImprovement
 from botorch.acquisition.analytic import ExpectedImprovement
+from botorch.models import SingleTaskGP
 from botorch.optim import optimize_acqf
 from dotenv import load_dotenv
 from torchvision.io import read_image
@@ -743,7 +744,8 @@ def colabo_robustness_plot(seed: int | None = 256) -> Tuple[plt.Figure, plt.Axes
     objective = Shekel1D(negate=True)
     prior_predictor = Shekel1DNoGlobal(negate=True)
     prior_predictor_optimizers = prior_predictor._optimizers
-    x_samples_normalized = [0.81, 0.09, 0.52, 0.79, 0.0, 1.0] # + torch.linspace(0, 1, 20).numpy().tolist()
+    # x_samples_normalized = [0.81, 0.09, 0.52, 0.79, 0.0, 1.0, 0.42] # + torch.linspace(0, 1, 20).numpy().tolist()
+    x_samples_normalized = [0.81, 0.01, 0.99, 0.39, 0.42, 0.5] # + torch.linspace(0, 1, 20).numpy().tolist()
     # plot_objective_function(ax_obj, objective=objective)
     plot_objective_vs_prior_func(ax_prior_func_vs_obj, objective=objective, prior_predictor=prior_predictor, prior_predictor_optimizers=prior_predictor_optimizers)
     temp = .1
@@ -784,20 +786,21 @@ def pibo_normalization_plot() -> Tuple[plt.Figure, plt.Axes]:
         f_min_hat = y.quantile(f_min_perc)
         f_max_hat = y.quantile(f_max_perc)
 
-        ax.axhline(f_min_hat, linestyle=":", color="lightgray", label=r"$[\hat{f}_{min}, \hat{f}_{max}]$")
-        ax.axhline(f_max_hat, linestyle=":", color="lightgray")
+        ax.axhline(f_min_hat, linestyle="-", color="lightgray", label=r"$[\hat{f}_{min}, \hat{f}_{max}]$")
+        ax.axhline(f_max_hat, linestyle="-", color="lightgray")
         ax.fill_between(x, f_min_hat, f_max_hat, color='lightgray', alpha=0.1)
 
-        ax.plot(x, y, color="k")
+        ax.plot(x, y, color="k", label=r"$\hat{f}(x)$")
 
         # Plot samples
-        init_x = unnormalize(torch.tensor(x_samples_normalized), objective.bounds)
-        init_y = objective(init_x.unsqueeze(-1))
-        ax.scatter(init_x, init_y, color="k", s=10, label=r"$\mathcal{D}$")
+        if x_samples_normalized:
+            init_x = unnormalize(torch.tensor(x_samples_normalized), objective.bounds)
+            init_y = objective(init_x.unsqueeze(-1))
+            ax.scatter(init_x, init_y, color="k", s=10, label=r"$\mathcal{D}$")
 
         y_min, y_max = ax.get_ylim()
         ax.set_ylim(y_min, y_min + (y_max-y_min) * 1.35)
-        ax.legend(loc='upper center', ncol=2, bbox_to_anchor=(0.5, 0.99))
+        ax.legend(loc='upper center', ncol=2 if x_samples_normalized else 1, bbox_to_anchor=(0.5, 0.99))
 
         ax.set_xlabel(r"$x$")
         ax.set_ylabel(r"$\hat{f}(x)$")
@@ -926,8 +929,14 @@ def pibo_normalization_plot() -> Tuple[plt.Figure, plt.Axes]:
         init_x = unnormalize(torch.tensor(x_samples_normalized), objective.bounds)
         init_y = objective(init_x.unsqueeze(-1))
 
-        model = init_and_fit_model(init_x.unsqueeze(dim=-1), init_y.unsqueeze(dim=-1), objective.bounds)
-        acq_func = ExpectedImprovement(model=model, best_f=init_y.max())
+        if not x_samples_normalized:
+            model = SingleTaskGP(train_X=torch.empty((0,1)), train_Y=torch.empty((0,1)))
+            best_f = 0.0
+        else:
+            model = init_and_fit_model(init_x.unsqueeze(dim=-1), init_y.unsqueeze(dim=-1), objective.bounds)
+            best_f = init_y.max()
+
+        acq_func = ExpectedImprovement(model=model, best_f=best_f)
         with torch.no_grad():
             ei = acq_func(x.unsqueeze(-1).unsqueeze(-1))
             ei_obj = ei * y_obj_scaled
@@ -935,7 +944,7 @@ def pibo_normalization_plot() -> Tuple[plt.Figure, plt.Axes]:
             ei_obj_norm = normalize(ei_obj, torch.stack([ei_obj.min(), ei_obj.max()]))
             ei_hat_norm = normalize(ei_hat, torch.stack([ei_hat.min(), ei_hat.max()]))
 
-        if plot_samples:
+        if x_samples_normalized and plot_samples:
             for x_idx, x_sample in enumerate(init_x):
                 ax.axvline(x_sample, color="gray", linestyle="--", linewidth=0.7, label=r"$\mathcal{D}$" if x_idx == 0 else "__nolabel__")
 
@@ -954,7 +963,8 @@ def pibo_normalization_plot() -> Tuple[plt.Figure, plt.Axes]:
     objective = Shekel1DNoGlobal(negate=True)
     f_min_perc: float = 0.12
     f_max_perc: float = 0.8
-    x_samples_normalized = [0.01, 0.34, 0.46, 0.6, 0.8, 0.99] # + torch.linspace(0, 1, 20).numpy().tolist()
+    # x_samples_normalized = [0.01, 0.34, 0.46, 0.6, 0.8, 0.89] # + torch.linspace(0, 1, 20).numpy().tolist()
+    x_samples_normalized = []
     plot_prior_predict_func(axes[0,0], x_samples_normalized=x_samples_normalized, objective=objective, f_min_perc=f_min_perc, f_max_perc=f_max_perc)
     plot_normalized_prior_predict_func(axes[0,1], objective=objective, f_min_perc=f_min_perc, f_max_perc=f_max_perc)
     plot_prior(axes[1,0], temperature=temperature, objective=objective, f_min_perc=f_min_perc, f_max_perc=f_max_perc)
