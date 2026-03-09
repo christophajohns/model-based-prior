@@ -35,7 +35,7 @@ COLORS = [
     "black",
 ]
 
-def plot_regret(ax: plt.Axes, df: pd.DataFrame, num_initial_samples: int = 4, shaded_area: Literal['min_max', 'iqr'] | None = 'iqr') -> None:
+def plot_regret(ax: plt.Axes, df: pd.DataFrame, num_initial_samples: int = 4, shaded_area: Literal['min_max', 'iqr', 'se'] | None = 'se', line: Literal['median', 'mean'] = 'mean') -> None:
     """Plot the regret for each bias level."""
     df = df.sort_values(['label', 'iteration'])
 
@@ -46,7 +46,7 @@ def plot_regret(ax: plt.Axes, df: pd.DataFrame, num_initial_samples: int = 4, sh
         color = COLORS[label_idx]
 
         df_trace = df[df['label'] == label]
-        ax.plot(df_trace['iteration'] - 1, df_trace['median_log10_regret'], label=label, color=color, alpha=0.9)
+        ax.plot(df_trace['iteration'] - 1, df_trace[f'{line}_log10_regret'], label=label, color=color, alpha=0.9)
 
         if shaded_area == 'min_max':
             # Add the min and max regret as a shaded area
@@ -56,6 +56,11 @@ def plot_regret(ax: plt.Axes, df: pd.DataFrame, num_initial_samples: int = 4, sh
         elif shaded_area == 'iqr':
             # Alternatively, plot the IQR as a shaded area
             ax.fill_between(df_trace['iteration'] - 1, df_trace['first_quartile_log10_regret'], df_trace['third_quartile_log10_regret'],
+                            color=color, alpha=0.2)
+            
+        elif shaded_area == 'se':
+            # Alternatively, plot the standard error as a shaded area
+            ax.fill_between(df_trace['iteration'] - 1, df_trace[f'{line}_log10_regret'] - df_trace['se_log10_regret'], df_trace[f'{line}_log10_regret'] + df_trace['se_log10_regret'],
                             color=color, alpha=0.2)
 
     # Add vertical lines for the initial samples
@@ -141,9 +146,11 @@ def get_regret_data(
                     'iteration': iteration,
                     'min_log10_regret': min(regrets),
                     'first_quartile_log10_regret': np.percentile(regrets, 25),
+                    'mean_log10_regret': np.mean(regrets),
                     'median_log10_regret': np.median(regrets),
                     'third_quartile_log10_regret': np.percentile(regrets, 75),
                     'max_log10_regret': max(regrets),
+                    'se_log10_regret': np.std(regrets) / np.sqrt(len(regrets)),
                     'label': description,
                 })
 
@@ -732,7 +739,7 @@ def prepare_regret_dataframe(
 
     Returns:
         A pandas DataFrame aggregated by iteration and the grouping column,
-        containing median, quartiles, min, and max of log10_regret.
+        containing median, quartiles, min, max and standard error of log10_regret.
     """
     if df_raw.empty:
         return pd.DataFrame()
@@ -747,9 +754,11 @@ def prepare_regret_dataframe(
     df_agg = df_raw.groupby([grouping_col, 'iteration'])['log10_regret'].agg([
         ('min_log10_regret', 'min'),
         ('first_quartile_log10_regret', lambda x: np.percentile(x, 25)),
+        ('mean_log10_regret', 'mean'),
         ('median_log10_regret', 'median'),
         ('third_quartile_log10_regret', lambda x: np.percentile(x, 75)),
-        ('max_log10_regret', 'max')
+        ('max_log10_regret', 'max'),
+        ('se_log10_regret', lambda x: np.std(x) / np.sqrt(len(x))),
     ]).reset_index()
 
     # Rename the grouping column to 'label' as expected by plot_regret
@@ -764,7 +773,8 @@ def regret_image_tuning_plot(
     optimal_value: float = 10.0,
     num_initial_samples: int | None = None, # If None, tries to infer from data
     max_iterations_to_plot: int | None = None,
-    shaded_area: Literal['min_max', 'iqr'] | None = 'iqr',
+    shaded_area: Literal['min_max', 'iqr', 'se'] | None = 'se',
+    line: Literal['median', 'mean'] = 'mean',
     title: str = "Image Tuning Regret",
     figsize: Tuple[int, int] = (5, 4)
 ) -> Tuple[plt.Figure, plt.Axes]:
@@ -779,7 +789,7 @@ def regret_image_tuning_plot(
                              If None, it tries to infer from the loaded data (uses the mode).
         max_iterations_to_plot: Maximum iteration number to include in the plot.
                                 If None, includes all iterations found.
-        shaded_area: Type of shaded area to plot ('min_max', 'iqr', or None).
+        shaded_area: Type of shaded area to plot ('min_max', 'iqr', 'se' or None).
         title: The title for the plot.
         figsize: The size of the matplotlib figure.
 
@@ -833,7 +843,8 @@ def regret_image_tuning_plot(
         ax=ax,
         df=df_plot,
         num_initial_samples=num_initial_samples,
-        shaded_area=shaded_area
+        shaded_area=shaded_area,
+        line=line,
     )
 
     ax.set_title(title)
