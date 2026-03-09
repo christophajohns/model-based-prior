@@ -322,6 +322,8 @@ class ImageTuner:
                     acqf_func_kwargs=dict(
                         resampling_fraction=0.5 if self.config.num_paths < 1024 else 256/self.config.num_paths,
                         custom_decay=1.0,
+                        nonneg_acq=False,
+                        log_acq=True,
                     ),
                 )
             

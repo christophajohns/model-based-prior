@@ -45,7 +45,7 @@ def maximize(
 
         # Draw the next sample from the sampler
         logger.debug("Drawing the next sample from the sampler")
-        next_X, _ = generate_data_from_prior(objective, user_prior, 1)
+        next_X, _ = generate_data_from_prior(objective, user_prior, 1, ignore_default_for_n_equals_1=True)
 
         # Update the data with the new observations
         logger.debug("Updating data with new observations")

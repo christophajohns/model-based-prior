@@ -46,13 +46,14 @@ def pibo_factory(**kwargs):
         - prior_floor (optional): Minimum value for the prior.
         - log_acq_floor (optional): Minimum value for the log acquisition function.
         - nonneg_acq (optional): Boolean indicating if the acquisition function should be non-negative.
+        - log_acq (optional): Boolean indicating if the raw acquisition function is already in log space.
         - Additional keyword arguments are passed to the raw acquisition function.
     Returns:
     PiBO: An instance of the PiBO class initialized with the provided parameters.
     """
     pibo_kwargs = {
         key: kwargs.pop(key)
-        for key in ["user_prior", "decay_beta", "prior_floor", "log_acq_floor", "nonneg_acq"]  # "custom_decay" is not working because it was not implemented by Hvarfner et al.
+        for key in ["user_prior", "decay_beta", "prior_floor", "log_acq_floor", "nonneg_acq", "log_acq"]  # "custom_decay" is not working because it was not implemented by Hvarfner et al.
         if key in kwargs
     }
     # cache_root = kwargs.pop("cache_root", False)
@@ -144,6 +145,8 @@ class BenchmarkRunner:
                     acqf_func_kwargs=dict(
                         resampling_fraction=0.5 if config.num_paths < 1024 else 256/config.num_paths,
                         custom_decay=1.0,
+                        nonneg_acq=False,
+                        log_acq=True,
                     ),
                 )
             else:  # config.optimization_method == "PriorSampling"
@@ -194,6 +197,8 @@ class BenchmarkRunner:
                 acqf_func_kwargs=dict(
                     resampling_fraction=0.5 if config.num_paths < 1024 else 256/config.num_paths,
                     custom_decay=1.0,
+                    nonneg_acq=False,
+                    log_acq=True,
                 ),
             )
             result_y = -objective.evaluate_true(result_X) if objective.negate else objective.evaluate_true(result_X)
@@ -234,14 +239,14 @@ class BenchmarkRunner:
             return get_default_prior(objective=objective, offset_factor=0.1, confidence=0.25)
         
         temperature = 1.0
-        if "Certain" in prior_type:
-            temperature = 0.1
-        elif "MoreCertain" in prior_type:
+        if "MoreCertain" in prior_type:
             temperature = 0.01
-        elif "Uncertain" in prior_type:
-            temperature = 10.0
+        elif "Certain" in prior_type:
+            temperature = 0.1
         elif "MoreUncertain" in prior_type:
             temperature = 100.0
+        elif "Uncertain" in prior_type:
+            temperature = 10.0
         
         if "Unbiased" in prior_type:
             return get_model_based_prior(objective=objective, objective_model=objective, minimize=False, temperature=temperature)

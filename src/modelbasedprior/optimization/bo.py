@@ -39,13 +39,18 @@ def generate_data_from_prior(
         user_prior: UserPriorLocation,
         n: int = 1,
         max_retries: int = 1000,
+        ignore_default_for_n_equals_1: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Generate input data X from a prior and corresponding utility values."""
     default_X = user_prior.default.unsqueeze(0).to(dtype=torch.float64)
     default_y = objective(default_X).reshape(-1, 1)
 
     if n == 1:
-        return default_X, default_y
+        if not ignore_default_for_n_equals_1:
+            return default_X, default_y
+        sampled_X = user_prior.sample(1).to(dtype=torch.float64)
+        sampled_y = objective(sampled_X).reshape(-1, 1)
+        return sampled_X, sampled_y
 
     # Sample n-1 unique points from the prior that are not the default point
     sampled_X = torch.empty(0, objective.dim, dtype=torch.float64)
