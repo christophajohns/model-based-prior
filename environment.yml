@@ -4,6 +4,7 @@ channels:
   - pytorch
 dependencies:
   - python=3.12
+  - mkl<2025
   - pytorch
   - torchvision
   - pip
@@ -19,4 +20,4 @@ dependencies:
     - seaborn
     - dash
     - dash-bootstrap-components
-    - "fastapi[standard]"
+    - fastapi[standard]
