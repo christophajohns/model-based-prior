@@ -440,7 +440,7 @@ class ImageAestheticsLoss(SyntheticTestFunction):
                 n=self._num_init_samples, q=1,
                 seed=torch.randint(10000, (1,)).item()
             ).squeeze(1)
-            X_samples = unnormalize(X_norm_samples, bounds=self.bounds)
+            X_samples = unnormalize(X_norm_samples, bounds=self.bounds.to(device=device, dtype=dtype))
             X_est = torch.cat([X_extreme, X_samples], dim=0)
         else:
             X_est = X_extreme

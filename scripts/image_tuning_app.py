@@ -267,7 +267,7 @@ class ImageTuner:
                 ).to(self.device)
                 target_image_for_plotting = target_image
             
-            bounds = prior_predict_func.bounds
+            bounds = prior_predict_func.bounds.to(self.device, dtype=torch.float32)
             dim = prior_predict_func.dim
             
             user_prior = ModelBasedPrior(
@@ -344,7 +344,7 @@ class ImageTuner:
             )
 
             self._visualize_results(
-                result_X, result_y, prior_predict_func, 
+                result_X.detach().cpu(), result_y.detach().cpu(), prior_predict_func, 
                 original_image, modified_image, target_image_for_plotting, 
                 image_path
             )
@@ -371,7 +371,7 @@ class ImageTuner:
         
         # Generate random samples within bounds
         sobol_engine = SobolEngine(dimension=dim, scramble=True, seed=self.config.seed)
-        anchoring_samples_unit = sobol_engine.draw(self.config.num_anchoring_samples)
+        anchoring_samples_unit = sobol_engine.draw(self.config.num_anchoring_samples).to(self.device, dtype=torch.float32)
         anchoring_samples = unnormalize(anchoring_samples_unit, bounds)
         
         for i in range(self.config.num_anchoring_samples):

@@ -30,7 +30,7 @@ def init_and_fit_model(X: torch.Tensor, y: torch.Tensor, bounds: torch.Tensor) -
 
 def generate_data(objective: Objective, n: int = 1) -> Tuple[torch.Tensor, torch.Tensor]:
     """Generate random input data X and corresponding utility values."""
-    X = unnormalize(torch.rand(n, objective.dim, dtype=torch.float64), objective.bounds)
+    X = unnormalize(torch.rand(n, objective.dim, dtype=torch.float64, device=objective.bounds.device), objective.bounds)
     y = objective(X).reshape(-1, 1)
     return X, y
 
@@ -42,22 +42,24 @@ def generate_data_from_prior(
         ignore_default_for_n_equals_1: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Generate input data X from a prior and corresponding utility values."""
-    default_X = user_prior.default.unsqueeze(0).to(dtype=torch.float64)
+    device = objective.bounds.device
+
+    default_X = user_prior.default.unsqueeze(0).to(device=device, dtype=torch.float64)
     default_y = objective(default_X).reshape(-1, 1)
 
     if n == 1:
         if not ignore_default_for_n_equals_1:
             return default_X, default_y
-        sampled_X = user_prior.sample(1).to(dtype=torch.float64)
+        sampled_X = user_prior.sample(1).to(device=device, dtype=torch.float64)
         sampled_y = objective(sampled_X).reshape(-1, 1)
         return sampled_X, sampled_y
 
     # Sample n-1 unique points from the prior that are not the default point
-    sampled_X = torch.empty(0, objective.dim, dtype=torch.float64)
+    sampled_X = torch.empty(0, objective.dim, device=device, dtype=torch.float64)
     while sampled_X.size(0) < n-1:
         i = 0
         while (i < max_retries):
-            attempt_sampled_X = user_prior.sample(1).to(dtype=torch.float64)
+            attempt_sampled_X = user_prior.sample(1).to(device=device, dtype=torch.float64)
             sample_close_to_default = torch.allclose(attempt_sampled_X, default_X)
             sample_in_sampled_X = torch.any(torch.all(torch.isclose(attempt_sampled_X, sampled_X), dim=-1))
             if not sample_close_to_default and not sample_in_sampled_X:

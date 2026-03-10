@@ -22,7 +22,7 @@ class ModelBasedPrior(UserPriorLocation):
 
         # Generate Sobol samples from the parameter space
         sobol = torch.quasirandom.SobolEngine(dimension=self.dim)
-        x_sobol = sobol.draw(n_samples).double()
+        x_sobol = sobol.draw(n_samples).double().to(device=self.device, dtype=torch.float32)
         x_samples = unnormalize(x_sobol, self.bounds)
 
         # Compute the function values for the prediction model
@@ -46,7 +46,7 @@ class ModelBasedPrior(UserPriorLocation):
         self.volume = torch.exp(torch.sum(torch.log(torch.abs(self.bounds[1] - self.bounds[0]) + 1e-10)))  # numerically stable hypercube volume
         self.approximate_log_integral = self.logsumexp + torch.log(self.volume) - torch.log(torch.tensor(self.n_samples))
 
-        self.rng = torch.Generator(device='cpu').manual_seed(self.seed)
+        self.rng = torch.Generator(device=self.device).manual_seed(self.seed)
 
         self.samples = x_samples
         self.sample_log_probs = y_pred_samples_normalized / temperature - self.approximate_log_integral
@@ -78,7 +78,7 @@ class ModelBasedPrior(UserPriorLocation):
         """
         # Sample from the model based prior by generating samples from the Boltzmann distribution
         number_of_generated_samples = max(kwargs.get("number_of_generated_samples", self.samples.size(0)), num_samples)
-        samples = unnormalize(torch.rand(number_of_generated_samples, self.dim), self.bounds)
+        samples = unnormalize(torch.rand(number_of_generated_samples, self.dim).to(device=self.bounds.device), self.bounds)
         sample_log_probs = self.evaluate(normalize(samples, self.bounds)).squeeze()
         sample_log_probs_normalized = sample_log_probs - (torch.logsumexp(sample_log_probs, dim=0) + torch.log(self.volume) - torch.log(torch.tensor(number_of_generated_samples)))
         sample_probs_normalized = torch.exp(sample_log_probs_normalized)
