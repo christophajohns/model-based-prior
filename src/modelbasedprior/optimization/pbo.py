@@ -155,7 +155,7 @@ def maximize(
     logger.debug(f"Set random seed to {seed}")
 
     # Store for the current best point at any iteration
-    all_best_X = torch.Tensor([])
+    all_best_X = torch.tensor([])
 
     # Initial data generation
     if user_prior is None:
