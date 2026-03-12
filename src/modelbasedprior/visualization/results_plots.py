@@ -511,7 +511,7 @@ def regret_by_technique_and_temperature(
         num_initial_samples: int = 4,
         max_iterations_to_plot: int = 40,
         prior_injection_techniques=['PriorSampling', 'piBO', 'ColaBO'],
-    ) -> Tuple[plt.Figure, plt.Axes]:
+    ) -> Tuple[plt.Figure, np.ndarray]:
     """Create an illustration of the regret MR layout quality plot."""
     # Drop all iterations after 40
     df = df[df['iteration'] <= (max_iterations_to_plot + num_initial_samples)]
@@ -524,28 +524,30 @@ def regret_by_technique_and_temperature(
     # Rename columns
     df_injection_comparison['label'] = df_injection_comparison['original_label'].replace({fr'{prior_injection_technique}, Biased, $T = 1.0$': fr'{prior_injection_technique}-MC-LogEI' for prior_injection_technique in prior_injection_techniques})
     df_injection_comparison['label'].replace({'PriorSampling-MC-LogEI': 'PriorSampling'}, inplace=True)
-    df_injection_comparison['label'].replace({'piBO-MC-LogEI': r'$\pi$BO-MC-LogEI'}, inplace=True)
+    df_injection_comparison['label'].replace({'piBO-MC-LogEI': r'$\pi$BO'}, inplace=True)
+    df_injection_comparison['label'].replace({'ColaBO-MC-LogEI': 'ColaBO'}, inplace=True)
+    df_injection_comparison['label'].replace({'MC-LogEI': 'ConventionalBO'}, inplace=True)
 
-    fig, axs = plt.subplots(1, 4, figsize=(20, 4))
-    injection_method_comparison_ax, prior_sampling_ax, pibo_ax, colabo_ax = axs
+    fig, axs = plt.subplots(2, 2, figsize=(10, 8)) 
+    ax_flat = axs.flatten()
+    
+    injection_method_comparison_ax = ax_flat[0]
+    prior_sampling_ax, pibo_ax, colabo_ax = ax_flat[1], ax_flat[2], ax_flat[3]
 
     plot_regret(injection_method_comparison_ax, df_injection_comparison, num_initial_samples)
     injection_method_comparison_ax.set_title(f'{optimization_type} {objective_type}')
 
     # Temperature comparison
     for ax, prior_injection_method in zip([prior_sampling_ax, pibo_ax, colabo_ax], prior_injection_techniques):
-
-        df_method = df[df['original_label'].str.contains(prior_injection_method)]
+        df_method = df[df['original_label'].str.contains(prior_injection_method)].copy()
         df_method['label'] = df_method['original_label'].str.replace(r'.*\$T = ([\d\.]+)\$', r'$T = \1$', regex=True)
         df_method['temperature'] = df_method['original_label'].str.extract(r'\$T = ([\d\.]+)\$')[0].astype(float)
-
         df_sorted = df_method.sort_values(by=['temperature', 'iteration'], ascending=True)
 
         plot_regret(ax, df_sorted, num_initial_samples)
         ax.set_title(f'{prior_injection_method if prior_injection_method != "piBO" else r"$\pi$BO"}')
 
-    # Remove y-axis label from all but first subfigure
-    for ax in axs[1:]:
+    for ax in [ax_flat[1], ax_flat[3]]:
         ax.set_ylabel(None)
 
     return fig, axs
