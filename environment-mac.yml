@@ -1,14 +1,11 @@
 name: model-based-prior
 channels:
   - pytorch
-  - nvidia
   - defaults
 dependencies:
   - python=3.12
-  - mkl<2025
   - pytorch
   - torchvision
-  - pytorch-cuda=12.4
   - pip
   - tqdm
   - pip:
