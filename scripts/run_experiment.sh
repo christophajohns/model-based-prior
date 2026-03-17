@@ -1,39 +1,43 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 
 # Path to your Python script
 python_script="scripts/synthetic_evaluation.py"
 
 # Function to run the Python script
 run_script() {
-  # Start the Python process in the background and capture its PID
-  unbuffer caffeinate python $python_script 2>&1 | {
-    python_pid=$!  # Capture the PID of the unbuffered Python process
-    completed=false  # Flag to detect "All experiments completed."
+  # Determine if we are on macOS to use caffeinate, otherwise ignore
+  local cmd_prefix=""
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    # Only use caffeinate if available on macOS
+    if command -v caffeinate >/dev/null 2>&1; then
+      cmd_prefix="caffeinate"
+    fi
+  fi
+
+  # Run the Python script
+  $cmd_prefix python -u "$python_script" 2>&1 | {
+    python_pid=$!
+    completed=false
 
     while IFS= read -r line; do
       echo "$line"
       
       # Check for UserWarning
       if echo "$line" | grep -q "UserWarning: resource_tracker: There appear to be"; then
-        echo "Warning detected: Terminating the script..."
-        pkill -P $python_pid  # Safely terminate the Python process
-        return 1  # Return non-zero to indicate warning was found
+        echo "Warning detected: Killing process..."
+        # Kill the group so we don't leave orphaned children
+        kill -9 "$python_pid" 2>/dev/null
+        return 1
       fi
 
       # Check for successful completion
       if echo "$line" | grep -q "Benchmark completed."; then
         echo "Experiment completed successfully."
-        completed=true  # Set the completion flag
+        completed=true
       fi
     done
 
-    # Only return success if "All experiments completed." was found
-    if [ "$completed" = true ]; then
-      return 0
-    else
-      echo "Script terminated without completing all experiments."
-      return 1
-    fi
+    [ "$completed" = true ]
   }
 }
 

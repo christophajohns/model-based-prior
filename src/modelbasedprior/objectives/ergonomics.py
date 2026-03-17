@@ -193,7 +193,7 @@ def get_neck_ergonomics_cost(
     eye_to_element_vector = element_position - eye_position
 
     # If the element is directly at the eye position, return 1 (worst ergonomics)
-    if torch.allclose(eye_to_element_vector, torch.zeros_like(eye_to_element_vector)):
+    if torch.allclose(eye_to_element_vector, torch.zeros_like(eye_to_element_vector, device=eye_position.device)):
         return torch.ones(eye_to_element_vector.shape[:-1], device=eye_position.device)
 
     # Compute vector from eye to the element's projection on the xz-plane at eye height
@@ -250,7 +250,7 @@ def get_exp_arm_ergonomics_cost_from_angle(
     x_mod = torch.remainder(arm_angle_rad, 2 * torch.pi)
 
     # Compute ergonomics cost based on angle
-    exp_term = torch.exp(torch.tensor(steepness_factor))
+    exp_term = torch.exp(torch.tensor(steepness_factor, device=arm_angle.device))
     cost = torch.where(
         x_mod <= torch.pi,
         steepness_factor * (torch.exp((x_mod / torch.pi)) - 1) / (exp_term - 1),
@@ -344,6 +344,8 @@ class NeckErgonomicsCost(SyntheticTestFunction):
         if bounds is None:
             bounds = [(-2.0, 2.0) for _ in range(self.dim)]
 
+        super().__init__(noise_std=noise_std, negate=negate, bounds=bounds)
+
         # Ensure eye position is a torch tensor
         if eye_position is None:
             eye_position = torch.tensor([0.0, 0.0, 0.0])
@@ -351,9 +353,7 @@ class NeckErgonomicsCost(SyntheticTestFunction):
             eye_position = torch.tensor(eye_position, dtype=torch.float32)
 
         self._optimizers = [tuple(eye_position.tolist())]
-        self.eye_position = eye_position
-
-        super().__init__(noise_std=noise_std, negate=negate, bounds=bounds)
+        self.register_buffer("eye_position", eye_position)
 
     def evaluate_true(self, X: torch.Tensor) -> torch.Tensor:
         """
@@ -435,6 +435,8 @@ class ExponentialArmErgonomicsCost(SyntheticTestFunction):
         if bounds is None:
             bounds = [(-2.0, 2.0) for _ in range(self.dim)]
 
+        super().__init__(noise_std=noise_std, negate=negate, bounds=bounds)
+
         # Ensure shoulder position is a torch tensor
         if shoulder_joint_position is None:
             shoulder_joint_position = torch.tensor([0.0, -0.2, 0.0])
@@ -442,9 +444,7 @@ class ExponentialArmErgonomicsCost(SyntheticTestFunction):
             shoulder_joint_position = torch.tensor(shoulder_joint_position, dtype=torch.float32)
 
         self._optimizers = [tuple(shoulder_joint_position.tolist())]
-        self.shoulder_joint_position = shoulder_joint_position
-
-        super().__init__(noise_std=noise_std, negate=negate, bounds=bounds)
+        self.register_buffer("shoulder_joint_position", shoulder_joint_position)
 
     def evaluate_true(self, X: torch.Tensor) -> torch.Tensor:
         """

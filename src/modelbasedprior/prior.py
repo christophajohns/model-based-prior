@@ -78,7 +78,7 @@ class ModelBasedPrior(UserPriorLocation):
         """
         # Sample from the model based prior by generating samples from the Boltzmann distribution
         number_of_generated_samples = max(kwargs.get("number_of_generated_samples", self.samples.size(0)), num_samples)
-        samples = unnormalize(torch.rand(number_of_generated_samples, self.dim).to(device=self.bounds.device), self.bounds)
+        samples = unnormalize(torch.rand(number_of_generated_samples, self.dim).to(device=self.device), self.bounds)
         sample_log_probs = self.evaluate(normalize(samples, self.bounds)).squeeze()
         sample_log_probs_normalized = sample_log_probs - (torch.logsumexp(sample_log_probs, dim=0) + torch.log(self.volume) - torch.log(torch.tensor(number_of_generated_samples)))
         sample_probs_normalized = torch.exp(sample_log_probs_normalized)

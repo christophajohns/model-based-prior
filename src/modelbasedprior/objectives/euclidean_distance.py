@@ -38,7 +38,7 @@ class EuclideanDistance(SyntheticTestFunction):
         super().__init__(noise_std=noise_std, negate=negate, bounds=bounds)
 
     def evaluate_true(self, X: torch.Tensor) -> torch.Tensor:
-        return torch.sqrt(torch.sum((X - torch.tensor(self._optimizers[0])) ** 2, dim=-1))
+        return torch.sqrt(torch.sum((X - torch.tensor(self._optimizers[0], device=X.device)) ** 2, dim=-1))
     
 if __name__ == "__main__":
     distance = EuclideanDistance(dim=3, optimizer=(0.0, 0.0, 0.0))

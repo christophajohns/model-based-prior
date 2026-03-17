@@ -58,25 +58,25 @@ def plot_scatterplots(X: torch.Tensor, objective: ScatterPlotQualityLoss):
 
 def get_optimization_results(experiment_config: DBExperimentConfig, objective_from_db: DBObjective, runner: BenchmarkRunner, data_dir: str):
     optimization_method = runner.db.get_optimization_type(experiment_config.optimization_type_id).description
-    objective = BenchmarkRunner.get_objective(objective_from_db.description, minimal_noise_std=MINIMAL_NOISE_STD)
+    objective = BenchmarkRunner.get_objective(objective_from_db.description, minimal_noise_std=MINIMAL_NOISE_STD).to(device=device)
     gp_path = os.path.join(data_dir, f"gp_{experiment_config.id}.pt")
 
-    if optimization_method == "BO" or "PriorSampling":
+    if optimization_method in ["BO", "PriorSampling"]:
         bo_results = runner.db.get_bo_experiment_results(experiment_config.id)
-        result_y = torch.tensor([[res.rating] for res in bo_results]).double()
-        result_X = torch.tensor([res.parameters for res in bo_results]).double()
-        result_best_X = torch.tensor([res.best_parameters for res in bo_results]).double()
-        result_best_y = torch.tensor([res.best_rating for res in bo_results]).double()
+        result_y = torch.tensor([[res.rating] for res in bo_results], device=device, dtype=dtype)
+        result_X = torch.tensor([res.parameters for res in bo_results], device=device, dtype=dtype)
+        result_best_X = torch.tensor([res.best_parameters for res in bo_results], device=device, dtype=dtype)
+        result_best_y = torch.tensor([res.best_rating for res in bo_results], device=device, dtype=dtype)
         gp = bo_load_model(gp_path, train_X=result_X, train_Y=result_y, bounds=objective.bounds)
 
     elif optimization_method == "PBO":
         pbo_results = runner.db.get_pbo_experiment_results(experiment_config.id)
         pbo_experiment_config = runner.db.get_pbo_experiment_configs(experiment_config.id)
         params = {pbo_param.id: pbo_param for pbo_param in pbo_experiment_config}
-        result_y = torch.tensor([res.rating for res in pbo_experiment_config]).double()
-        result_X = torch.tensor([res.parameters for res in pbo_experiment_config]).double()
-        result_best_X = torch.tensor([res.parameters_best for res in pbo_results]).double()
-        result_best_y = torch.tensor([res.best_rating for res in pbo_results]).double()
+        result_y = torch.tensor([res.rating for res in pbo_experiment_config], device=device, dtype=dtype)
+        result_X = torch.tensor([res.parameters for res in pbo_experiment_config], device=device, dtype=dtype)
+        result_best_X = torch.tensor([res.parameters_best for res in pbo_results], device=device, dtype=dtype)
+        result_best_y = torch.tensor([res.best_rating for res in pbo_results], device=device, dtype=dtype)
         result_comparisons = torch.tensor([[params[res.parameters_preferred_id].parameters_id, params[res.parameters_not_preferred_id].parameters_id] for res in pbo_results])
         gp = pbo_load_model(gp_path, datapoints=result_X, comparisons=result_comparisons, bounds=objective.bounds)
 
@@ -85,7 +85,10 @@ def get_optimization_results(experiment_config: DBExperimentConfig, objective_fr
 
 load_dotenv()
 
-SMOKE_TEST: bool = False  # If TRUE runs the evaluation with limited budget and temporary database
+device = "cuda" if torch.cuda.is_available() else "cpu"
+dtype = torch.double
+
+SMOKE_TEST: bool = True  # If TRUE runs the evaluation with limited budget and temporary database
 
 if SMOKE_TEST:
     temporary_data_dir = tempfile.TemporaryDirectory()
@@ -368,7 +371,11 @@ if EXPERIMENT_TO_PLOT_ID is not None:
     experiment_config = runner.db.get_experiment_config(EXPERIMENT_TO_PLOT_ID)
     objective_from_db = runner.db.get_objective(experiment_config.objective_id)
     result_X, result_y, result_best_X, result_best_y, gp = get_optimization_results(experiment_config, objective_from_db, runner, DATA_DIR)
-    objective = BenchmarkRunner.get_objective(objective_from_db.description, minimal_noise_std=MINIMAL_NOISE_STD)
+    result_X = result_X.detach().cpu()
+    result_y = result_y.detach().cpu()
+    result_best_X.detach().cpu()
+    result_best_y.detach().cpu()
+    objective = BenchmarkRunner.get_objective(objective_from_db.description, minimal_noise_std=MINIMAL_NOISE_STD).to(device="cpu")
     optimization_method = runner.db.get_optimization_type(experiment_config.optimization_type_id).description
 
 

@@ -135,13 +135,13 @@ class SemanticAgreementCost(SyntheticTestFunction):
         assert positive_association_scores.shape == negative_association_scores.shape, "The association scores must have the same shape."
         assert positive_association_scores.shape[0] == object_positions.shape[0], "The association scores must have the same number of elements as the object positions."
 
-        self.object_positions = object_positions
-        self.positive_association_scores = positive_association_scores
-        self.negative_association_scores = negative_association_scores
+        super().__init__(noise_std=noise_std, negate=negate, bounds=bounds)
+
+        self.register_buffer("object_positions", object_positions)
+        self.register_buffer("positive_association_scores", positive_association_scores)
+        self.register_buffer("negative_association_scores", negative_association_scores)
         self.positive_association_weight = positive_association_weight
         self.negative_association_weight = negative_association_weight
-
-        super().__init__(noise_std=noise_std, negate=negate, bounds=bounds)
 
     def evaluate_true(self, X: torch.Tensor) -> torch.Tensor:
         batch_shape = X.shape[:-1]

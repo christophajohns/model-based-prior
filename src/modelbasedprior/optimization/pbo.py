@@ -19,17 +19,22 @@ from modelbasedprior.optimization.bo import generate_data, generate_data_from_pr
 
 def generate_comparisons(y: torch.Tensor) -> torch.Tensor:
     """Create noisy pairwise comparisons from utility values."""
+    device = y.device
     y = y.squeeze()
+    n = y.shape[0]
 
-    all_pairs = np.array(list(combinations(range(y.shape[0]), 2)))
+    all_pairs = torch.combinations(torch.arange(n, device=device), r=2)
     
     c0 = y[all_pairs[:, 0]]
     c1 = y[all_pairs[:, 1]]
     
-    reverse_comp = (c0 < c1).numpy()  # Corresponds to maximizing the objective function, use the reverse comparison for minimization
-    all_pairs[reverse_comp, :] = np.flip(all_pairs[reverse_comp, :], axis=1)
+    reverse_comp = c0 < c1  # Corresponds to maximizing the objective function, use the reverse comparison for minimization
+
+    flipped_pairs = all_pairs.clone()
+    flipped_pairs[reverse_comp, 0] = all_pairs[reverse_comp, 1]
+    flipped_pairs[reverse_comp, 1] = all_pairs[reverse_comp, 0]
     
-    return torch.tensor(all_pairs).long()
+    return flipped_pairs.long()
 
 def init_and_fit_model(X: torch.Tensor, comparisons: torch.Tensor, bounds: torch.Tensor) -> PairwiseGP:
     """Initialize and fit a pairwise Gaussian process model."""
@@ -102,7 +107,7 @@ def make_new_data(X: torch.Tensor, next_X: torch.Tensor, comparisons: torch.Tens
     X, next_indices = map_to_existing(X, next_X)
 
     # Generate new comparisons between the points in next_X (now represented by next_indices)
-    new_comps = torch.tensor(list(combinations(next_indices.tolist(), 2)))
+    new_comps = torch.tensor(list(combinations(next_indices.tolist(), 2)), device=X.device)
 
     # Generate noisy comparisons for these new pairs (every pair is compared once)
     X_comp = X[next_indices]
@@ -145,6 +150,8 @@ def maximize(
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Run the preferential Bayesian optimization (maximize objective)."""
     assert num_samples_per_iteration > 1 or not include_current_best, "At least 2 samples are needed per iteration if include_current_best is True"
+    
+    device = objective.bounds.device
 
     logger.info("Starting Bayesian optimization")
     logger.debug(f"Parameters: trials={num_trials}, initial_samples={num_initial_samples}, "
@@ -155,7 +162,7 @@ def maximize(
     logger.debug(f"Set random seed to {seed}")
 
     # Store for the current best point at any iteration
-    all_best_X = torch.tensor([])
+    all_best_X = torch.tensor([], device=device)
 
     # Initial data generation
     if user_prior is None:

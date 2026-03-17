@@ -76,8 +76,10 @@ class BenchmarkRunner:
                  gp_dir_path: str = "data/",
                  seed: int = 0,
                  logger: logging.Logger = logging.getLogger(__name__),
+                 device: str = "cuda" if torch.cuda.is_available() else "cpu",
                 ):
         self.seed = seed
+        self.device = device
         self.rng = np.random.default_rng(seed)
         self.db_path = db_path
         create_database(db_path)
@@ -124,7 +126,7 @@ class BenchmarkRunner:
     def run_experiment(self, config: ExperimentConfig, **kwargs):
         self.logger.info(f"Starting experiment {config}")
 
-        objective = self.get_objective(config.objective, **kwargs)
+        objective = self.get_objective(config.objective, **kwargs).to(device=self.device)
         user_prior = self.get_user_prior(prior_type=config.prior_type, objective=objective, seed=config.seed)
 
         temperature = None
@@ -165,10 +167,10 @@ class BenchmarkRunner:
             result_best_X = result_X[result_best_y_indices]
 
             experiment_config = self.db.add_bo_results(
-                result_best_X=result_best_X,
-                result_best_y=result_best_y,
-                result_X=result_X,
-                result_y=result_y,
+                result_best_X=result_best_X.detach().cpu(),
+                result_best_y=result_best_y.detach().cpu(),
+                result_X=result_X.detach().cpu(),
+                result_y=result_y.detach().cpu(),
                 objective=objective,
                 seed=config.seed,
                 n_trials=config.num_trials,
@@ -205,11 +207,11 @@ class BenchmarkRunner:
             result_best_y = -objective.evaluate_true(result_best_X) if objective.negate else objective.evaluate_true(result_best_X)
 
             experiment_config = self.db.add_pbo_results(
-                result_best_X=result_best_X,
-                result_best_y=result_best_y,
-                result_X=result_X,
-                result_comparisons=result_comparisons,
-                result_y=result_y,
+                result_best_X=result_best_X.detach().cpu(),
+                result_best_y=result_best_y.detach().cpu(),
+                result_X=result_X.detach().cpu(),
+                result_comparisons=result_comparisons.detach().cpu(),
+                result_y=result_y.detach().cpu(),
                 objective=objective,
                 seed=config.seed,
                 n_trials=config.num_trials,
@@ -232,6 +234,8 @@ class BenchmarkRunner:
         objective: Sphere | Shekel | Shekel2D | Hartmann | ImageSimilarityLoss | ScatterPlotQualityLoss | MRLayoutQualityLoss | None = None,
         seed: int = 42,
     ):
+        device = objective.bounds.device if objective is not None else "cpu"
+
         if (prior_type is None) or (prior_type == "None"):
             return None
         
@@ -255,13 +259,13 @@ class BenchmarkRunner:
             objective_model = lambda x: objective(x - 0.5)
 
         elif isinstance(objective, Shekel):
-            objective_model = ShekelNoGlobal(m=objective.m, negate=True)
+            objective_model = ShekelNoGlobal(m=objective.m, negate=True).to(device=device)
 
         elif isinstance(objective, Shekel2D):
-            objective_model = Shekel2DNoGlobal(m=objective.m, negate=True)
+            objective_model = Shekel2DNoGlobal(m=objective.m, negate=True).to(device=device)
 
         elif isinstance(objective, ImageSimilarityLoss):
-            objective_model = ImageSimilarityLoss(original_image=objective._original_image, weight_psnr=0.2, weight_ssim=0.8, negate=True)
+            objective_model = ImageSimilarityLoss(original_image=objective._original_image, weight_psnr=0.2, weight_ssim=0.8, negate=True).to(device=device)
 
         elif isinstance(objective, ScatterPlotQualityLoss):
             objective_model = ScatterPlotQualityLoss(
@@ -280,7 +284,7 @@ class BenchmarkRunner:
                 weight_outlier_perception = objective._weight_outlier_perception,
                 use_approximate_model=True,  # trained on weight_overplotting=0
                 negate=True,
-            )
+            ).to(device=device)
 
         elif isinstance(objective, MRLayoutQualityLoss):
             objective_model = MRLayoutQualityLoss(
@@ -289,7 +293,7 @@ class BenchmarkRunner:
                 weight_neck=0,
                 weight_semantic=0,
                 negate=True,
-            )
+            ).to(device=device)
 
         return get_model_based_prior(objective=objective, objective_model=objective_model, minimize=False, temperature=temperature, seed=seed)
     
