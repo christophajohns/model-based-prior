@@ -183,6 +183,10 @@ class Database:
 
     def _create_database(self):
         """Create database schema if it doesn't exist."""
+        dir_path = os.path.dirname(self.path)
+        if dir_path:
+            os.makedirs(dir_path, exist_ok=True)
+
         with self._connect() as conn:
             cursor = conn.cursor()
             
@@ -1240,7 +1244,7 @@ def get_database(path: str) -> Database:
     return Database(path)
 
 def test_database():
-    with tempfile.NamedTemporaryFile(suffix='db') as tmp:
+    with tempfile.NamedTemporaryFile(suffix='.db') as tmp:
         # Create a new database
         db = create_database(tmp.name)
         
