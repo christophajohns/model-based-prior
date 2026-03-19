@@ -2,6 +2,91 @@ from botorch.test_functions.synthetic import SyntheticTestFunction, Shekel
 from typing import List, Optional, Tuple
 import torch
 
+class ShekelDampenedGlobal(SyntheticTestFunction):
+    r"""Shekel test function with the original global optimum dampened. 
+
+    4-dimensional function (usually evaluated on `[0, 10]^4`):
+
+        f(x) = -sum_{i=1}^10 (sum_{j=1}^4 (x_j - C_{ji})^2 + beta_i)^{-1}
+
+    f has one minimizer for its global minimum at `z_1 = (8, 8, 8, 8)` with
+    `f(z_1)` dependent on the dampening.
+    """
+
+    dim = 4
+    _bounds =[(0.0, 10.0), (0.0, 10.0), (0.0, 10.0), (0.0, 10.0)]
+
+    def __init__(
+        self,
+        m: int = 10,
+        dampening: float = 10.0,
+        noise_std: Optional[float] = None,
+        negate: bool = False,
+        bounds: Optional[List[Tuple[float, float]]] = None,
+    ) -> None:
+        r"""
+        Args:
+            m: Defaults to 10.
+            dampening: Factor by which to dampen the original global optimum's amplitude.
+            noise_std: Standard deviation of the observation noise.
+            negate: If True, negate the function.
+            bounds: Custom bounds for the function specified as (lower, upper) pairs.
+        """
+        self.m = m
+        self.dampening = dampening
+
+        super().__init__(noise_std=noise_std, negate=negate, bounds=bounds)
+        
+        # Original parameters for the classic Shekel function
+        beta = torch.tensor([1, 2, 2, 4, 4, 6, 3, 7, 5, 5], dtype=torch.float)
+        
+        # Dampen the original global optimum (located at i=0)
+        # Increasing beta dampens the resulting amplitude inverse-proportionally.
+        beta[0] *= self.dampening
+        
+        C_t = torch.tensor(
+            [[4, 1, 8, 6, 3, 2, 5, 8, 6, 7],
+             [4, 1, 8, 6, 7, 9, 3, 1, 2, 3.6],
+             [4, 1, 8, 6, 3, 2, 5, 8, 6, 7],
+             [4, 1, 8, 6, 7, 9, 3, 1, 2, 3.6]],
+            dtype=torch.float,
+        )
+        C = C_t.transpose(-1, -2)
+
+        self.beta_val = beta
+        self.C_val = C
+
+        self.register_buffer("beta", beta)
+        self.register_buffer("C", C)
+
+        # Evaluate both the original optimal point and the alternative optimal point
+        z_orig = torch.tensor([4.000747, 3.99951, 4.00075, 3.99951], dtype=torch.float)
+        z_alt = torch.tensor([8.0, 8.0, 8.0, 8.0], dtype=torch.float)
+        
+        val_orig = self.evaluate_true(z_orig).item()
+        val_alt = self.evaluate_true(z_alt).item()
+        
+        # Dynamically set the optimal value and optimizer depending on which is the true global minimum
+        if val_orig < val_alt:
+            self._optimal_value = val_orig
+            self._optimizers = [tuple(z_orig.tolist())]
+        else:
+            self._optimal_value = val_alt
+            self._optimizers =[tuple(z_alt.tolist())]
+
+        self.register_buffer(
+            "optimizers", torch.tensor(self._optimizers, dtype=self.bounds.dtype)
+        )
+
+    def evaluate_true(self, X: torch.Tensor) -> torch.Tensor:
+        self.to(device=X.device, dtype=X.dtype)
+        beta = self.beta / 10.0
+        result = -sum(
+            1 / (torch.sum((X - self.C[i]) ** 2, dim=-1) + beta[i])
+            for i in range(self.m)
+        )
+        return result
+
 class ShekelNoGlobal(SyntheticTestFunction):
     r"""Shekel test function without the global optimum.
 
@@ -354,6 +439,35 @@ if __name__ == "__main__":
     print("Shekel (m=5)", shekel_5(X))
     print("Shekel (m=7)", shekel_7(X))
     print("Shekel (m=10)", shekel_10(X))
+
+    shekel_dampened_5 = ShekelDampenedGlobal(m=5)
+    shekel_dampened_7 = ShekelDampenedGlobal(m=7)
+    shekel_dampened_10 = ShekelDampenedGlobal(m=10)
+    # Test a custom dampening factor to ensure the optimal_val recalculation works correctly
+    shekel_dampened_5_d5 = ShekelDampenedGlobal(m=5, dampening=5.0)
+    shekel_dampened_5_d1 = ShekelDampenedGlobal(m=5, dampening=1.0)
+    shekel_dampened_10_d2 = ShekelDampenedGlobal(m=10, dampening=2.0)
+    shekel_dampened_10_d10e6 = ShekelDampenedGlobal(m=10, dampening=10e6)
+
+    original_shekel = Shekel()
+
+    X_sample = torch.rand(2, 4)
+    X_best = shekel_dampened_5.optimizers
+    X_best_original = original_shekel.optimizers
+    X = torch.cat([X_sample, X_best, X_best_original], dim=0)
+    
+    print("X", X)
+    print("ShekelDampenedGlobal (m=5, default dampening)", shekel_dampened_5(X))
+    print("ShekelDampenedGlobal (m=7, default dampening)", shekel_dampened_7(X))
+    print("ShekelDampenedGlobal (m=10, default dampening)", shekel_dampened_10(X))
+    print("ShekelDampenedGlobal (m=5, dampening=5.0)", shekel_dampened_5_d5(X))
+    print(f"Optimal value (m=5, dampening=5.0): {shekel_dampened_5_d5._optimal_value}")
+    print("ShekelDampenedGlobal (m=5, dampening=1.0)", shekel_dampened_5_d1(X))
+    print(f"Optimal value (m=5, dampening=1.0): {shekel_dampened_5_d1._optimal_value}")
+    print("ShekelDampenedGlobal (m=10, dampening=2.0)", shekel_dampened_10_d2(X))
+    print(f"Optimal value (m=10, dampening=2.0): {shekel_dampened_10_d2._optimal_value}")
+    print("ShekelDampenedGlobal (m=10, dampening=10.0e6)", shekel_dampened_10_d10e6(X))
+    print(f"Optimal value (m=10, dampening=10.0e6): {shekel_dampened_10_d10e6._optimal_value}")
 
     import plotly.graph_objects as go
 
