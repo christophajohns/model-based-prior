@@ -19,6 +19,8 @@ from modelbasedprior.visualization.results_plots import (
     regret_mr_layout_quality_plot,
     regret_by_technique_and_temperature,
     regret_by_technique_and_temperature_df,
+    regret_by_technique_and_bias_level,
+    regret_by_technique_and_bias_level_df,
     get_only_max_paths_for_colabo_df,
     regret_image_tuning_plot,
 )
@@ -33,7 +35,7 @@ for plot_func, filename in [
     # (sphere_plot, 'sphere.png'),
     # (shekel_plot, 'shekel.png'),
     # (scatter_quality_plot, 'scatter_quality.png'),
-    (prior_temperature_plot, 'prior_temperature.png'),
+    # (prior_temperature_plot, 'prior_temperature.png'),
     # (initial_samples_plot, 'initial_samples.png'),
 ]:
     fig, ax = plot_func()
@@ -43,7 +45,7 @@ for plot_func, filename in [
 # Results plots
 for plot_func, filename in [
     # (regret_sphere_plot, 'regret_sphere.png'),
-    # (regret_shekel_plot, 'regret_shekel.png'),
+    (regret_shekel_plot, 'regret_shekel.png'),
     # (regret_image_similarity_plot, 'regret_image_similarity.png'),
     # (regret_scatterplot_quality_plot, 'regret_scatterplot_quality.png'),
     # (regret_mr_layout_quality_plot, 'regret_mr_layout_quality.png'),
@@ -66,6 +68,7 @@ for plot_func, filename in [
             fig.tight_layout()
             fig.savefig(os.path.join(plots_dir, o_type[1] + o_type[0] + '_' + filename), dpi=300)
 
+# Temperature
 for optimization_type, objective_type in [
     # ('BO', 'Sphere'),
     # ('BO', 'SphereNoisy'),
@@ -87,6 +90,25 @@ for optimization_type, objective_type in [
     fig.savefig(os.path.join(
         plots_dir,
         f'regret_{optimization_type}_{objective_type}.png'
+    ), dpi=300)
+
+# Bias level
+for optimization_type, objective_type in [
+    ('BO', 'Sphere'),
+    # ('BO', 'Shekel'),
+    # ('BO', 'ImageSimilarity'),
+]:
+    df = regret_by_technique_and_bias_level_df(db, optimization_type, objective_type)
+    if objective_type == 'Shekel':
+        df_colabo = get_only_max_paths_for_colabo_df(db, optimization_type, objective_type)
+        # Drop all ColaBO rows
+        df = df[~df['label'].str.contains('ColaBO', na=False)]
+        df = pd.concat([df, df_colabo])
+    fig, axs = regret_by_technique_and_bias_level(df, optimization_type, objective_type)
+    fig.tight_layout()
+    fig.savefig(os.path.join(
+        plots_dir,
+        f'regret_{optimization_type}_{objective_type}_bias.png'
     ), dpi=300)
 
 image_tuning_results_dir = os.getenv("IMAGE_TUNING_SAVE_DIR", "./image_tuning_results")

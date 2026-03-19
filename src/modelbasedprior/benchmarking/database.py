@@ -72,6 +72,8 @@ class PriorType:
     BIASED_MORECERTAIN = "BiasedMoreCertain"
     BIASED_MOREUNCERTAIN = "BiasedMoreUncertain"
     BIASED_UNCERTAIN = "BiasedUncertain"
+    MOREBIASED = "MoreBiased"
+    EVENMOREBIASED = "EvenMoreBiased"
 
 @dataclass
 class Prior:
@@ -351,7 +353,7 @@ class Database:
                 cursor.execute("INSERT INTO optimization_types (description) VALUES (?)", (description,))
 
             # Add Unbiased, Biased, BiasedCertain, UnbiasedUncertain as default prior types
-            bias = ["Unbiased", "Biased"]
+            bias = ["Unbiased", "Biased", "MoreBiased", "EvenMoreBiased"]
             certainty = ["Certain", "Uncertain", "MoreCertain", "MoreUncertain"]
             prior_type_strings = [f"{b}{c}" for b in bias for c in certainty]
             for description in ["None", *bias, *prior_type_strings]:

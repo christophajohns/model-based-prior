@@ -113,7 +113,7 @@ db_path = os.path.join(DATA_DIR, DB_NAME) if not SMOKE_TEST else temporary_db_pa
 bias_levels = ["Unbiased", "Biased"]
 uncertainty_levels = ["Certain", "MoreCertain", "Uncertain", "MoreUncertain"]
 # prior_types = ["None", *bias_levels, *[f"{bias}{uncertainty}" for bias, uncertainty in itertools.product(bias_levels, uncertainty_levels)]]
-prior_types = ["None", "Biased"]  # Use above for full analysis; this is for a simple injection comparison
+prior_types = ["None", "Biased", "MoreBiased", "EvenMoreBiased"]  # Use above for full analysis; this is for a simple injection comparison
 optimization_methods = ["BO", "PBO", "PriorSampling"]
 injection_methods = ["None", "ColaBO", "piBO"]
 
@@ -213,13 +213,13 @@ mrlayout_quality_configs = get_mrlayout_quality_configs()
 configs = [
     config_dict["config"]
     for experiment_configs in [
-        # sphere_configs,
+        sphere_configs,
         # sphere_pbo_configs,
         # sphere_noisy_configs,
         # sphere_many_initial_samples_configs,
         # sphere_many_iterations_configs,
-        # shekel_configs,
-        # shekel_many_paths_configs,
+        shekel_configs,
+        shekel_many_paths_configs,
         image_similarity_configs,
         # scatterplot_quality_configs,
         # mrlayout_quality_configs,

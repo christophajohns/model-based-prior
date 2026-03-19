@@ -25,7 +25,7 @@ from modelbasedprior.optimization.pbo import maximize as pbo_maximize
 from modelbasedprior.optimization.bo import maximize as bo_maximize
 from modelbasedprior.optimization.prior_sampling import maximize as prior_sampling_maximize
 from modelbasedprior.objectives.sphere import Sphere
-from modelbasedprior.objectives.shekel import ShekelNoGlobal, Shekel2D, Shekel2DNoGlobal
+from modelbasedprior.objectives.shekel import ShekelNoGlobal, Shekel2D, Shekel2DNoGlobal, ShekelDampenedGlobal
 from modelbasedprior.objectives.image_similarity import ImageSimilarityLoss
 from modelbasedprior.objectives.scatterplot_quality import ScatterPlotQualityLoss
 from modelbasedprior.objectives.mr_layout_quality import MRLayoutQualityLoss
@@ -255,19 +255,46 @@ class BenchmarkRunner:
         if "Unbiased" in prior_type:
             return get_model_based_prior(objective=objective, objective_model=objective, minimize=False, temperature=temperature)
 
+        BIASED = "Biased"
+        MORE_BIASED = "MoreBiased"
+        EVEN_MORE_BIASED = "EvenMoreBiased"
+        if BIASED not in prior_type: raise UserWarning(f"Bias level was unexpected: {prior_type}")
+
         if isinstance(objective, Sphere):
-            objective_model = lambda x: objective(x - 0.5)
+            if EVEN_MORE_BIASED in prior_type:
+                delta = 1.5
+            elif MORE_BIASED in prior_type:
+                delta = 1.0
+            elif BIASED in prior_type:
+                delta = 0.5
+            objective_model = lambda x: objective(x - delta)
 
         elif isinstance(objective, Shekel):
-            objective_model = ShekelNoGlobal(m=objective.m, negate=True).to(device=device)
-
-        elif isinstance(objective, Shekel2D):
-            objective_model = Shekel2DNoGlobal(m=objective.m, negate=True).to(device=device)
+            if EVEN_MORE_BIASED in prior_type:
+                dampening = 2.0
+            elif MORE_BIASED in prior_type:
+                dampening = 10.0
+            elif BIASED in prior_type:
+                dampening = 10e6
+            objective_model = ShekelDampenedGlobal(m=objective.m, dampening=dampening, negate=True).to(device=device)
 
         elif isinstance(objective, ImageSimilarityLoss):
-            objective_model = ImageSimilarityLoss(original_image=objective._original_image, weight_psnr=0.2, weight_ssim=0.8, negate=True).to(device=device)
+            if EVEN_MORE_BIASED in prior_type:
+                weight_psnr, weight_ssim = 0.05, 0.95
+            elif MORE_BIASED in prior_type:
+                weight_psnr, weight_ssim = 0.1, 0.9
+            elif BIASED in prior_type:
+                weight_psnr, weight_ssim = 0.2, 0.8
+            objective_model = ImageSimilarityLoss(original_image=objective._original_image, weight_psnr=weight_psnr, weight_ssim=weight_ssim, negate=True).to(device=device)
+        
+        elif isinstance(objective, Shekel2D):
+            if any(bias_level in prior_type for bias_level in [EVEN_MORE_BIASED, MORE_BIASED]):
+                raise UserWarning(f"Bias level not supported for this objective, prior_type={prior_type}")
+            objective_model = Shekel2DNoGlobal(m=objective.m, negate=True).to(device=device)
 
         elif isinstance(objective, ScatterPlotQualityLoss):
+            if any(bias_level in prior_type for bias_level in [EVEN_MORE_BIASED, MORE_BIASED]):
+                raise UserWarning(f"Bias level not supported for this objective, prior_type={prior_type}")
             objective_model = ScatterPlotQualityLoss(
                 x_data=objective.x_data,
                 y_data=objective.y_data,
@@ -287,6 +314,8 @@ class BenchmarkRunner:
             ).to(device=device)
 
         elif isinstance(objective, MRLayoutQualityLoss):
+            if any(bias_level in prior_type for bias_level in [EVEN_MORE_BIASED, MORE_BIASED]):
+                raise UserWarning(f"Bias level not supported for this objective, prior_type={prior_type}")
             objective_model = MRLayoutQualityLoss(
                 weight_arm=0,
                 weight_euclidean=objective.weight_euclidean,

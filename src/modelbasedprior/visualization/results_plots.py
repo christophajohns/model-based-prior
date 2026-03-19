@@ -512,7 +512,7 @@ def regret_by_technique_and_temperature(
         max_iterations_to_plot: int = 40,
         prior_injection_techniques=['PriorSampling', 'piBO', 'ColaBO'],
     ) -> Tuple[plt.Figure, np.ndarray]:
-    """Create an illustration of the regret MR layout quality plot."""
+    """Plot the regret by prior injection technique and temperature."""
     # Drop all iterations after 40
     df = df[df['iteration'] <= (max_iterations_to_plot + num_initial_samples)]
     df.rename(columns={'label': 'original_label'}, inplace=True)
@@ -552,13 +552,59 @@ def regret_by_technique_and_temperature(
 
     return fig, axs
 
+def regret_by_technique_and_bias_level(
+        df: pd.DataFrame,
+        optimization_type: str,
+        objective_type: str,
+        num_initial_samples: int = 4,
+        max_iterations_to_plot: int = 40,
+        prior_injection_techniques=['PriorSampling', 'piBO', 'ColaBO'],
+    ) -> Tuple[plt.Figure, np.ndarray]:
+    """Plot the regret by prior injection technique and bias level."""
+    # Drop all iterations after 40
+    df = df[df['iteration'] <= (max_iterations_to_plot + num_initial_samples)]
+    df.rename(columns={'label': 'original_label'}, inplace=True)
+
+    # Get all data where prior was biased and temperature was 1.0
+    df_injection_comparison = df[(df['original_label'].str.contains('T = 1.0', na=False, regex=False) & df['original_label'].str.contains('Biased', na=False))
+                                 | df['original_label'].str.contains('MC-LogEI', na=False, regex=False)]
+
+    # Rename columns
+    df_injection_comparison['label'] = df_injection_comparison['original_label'].replace({fr'{prior_injection_technique}, Biased, $T = 1.0$': fr'{prior_injection_technique}-MC-LogEI' for prior_injection_technique in prior_injection_techniques})
+    df_injection_comparison['label'].replace({'PriorSampling-MC-LogEI': 'PriorSampling'}, inplace=True)
+    df_injection_comparison['label'].replace({'piBO-MC-LogEI': r'$\pi$BO'}, inplace=True)
+    df_injection_comparison['label'].replace({'ColaBO-MC-LogEI': 'ColaBO'}, inplace=True)
+    df_injection_comparison['label'].replace({'MC-LogEI': 'ConventionalBO'}, inplace=True)
+
+    fig, axs = plt.subplots(2, 2, figsize=(10, 8)) 
+    ax_flat = axs.flatten()
+    
+    injection_method_comparison_ax = ax_flat[0]
+    prior_sampling_ax, pibo_ax, colabo_ax = ax_flat[1], ax_flat[2], ax_flat[3]
+
+    plot_regret(injection_method_comparison_ax, df_injection_comparison, num_initial_samples)
+    injection_method_comparison_ax.set_title(f'{optimization_type} {objective_type}')
+
+    # Bias level comparison
+    for ax, prior_injection_method in zip([prior_sampling_ax, pibo_ax, colabo_ax], prior_injection_techniques):
+        df_method = df[df['original_label'].str.contains(prior_injection_method)].copy()
+        df_sorted = df_method.sort_values(by=['label', 'iteration'], ascending=True)
+
+        plot_regret(ax, df_sorted, num_initial_samples)
+        ax.set_title(f'{prior_injection_method if prior_injection_method != "piBO" else r"$\pi$BO"}')
+
+    for ax in [ax_flat[1], ax_flat[3]]:
+        ax.set_ylabel(None)
+
+    return fig, axs
+
 def regret_by_technique_and_temperature_df(
         db: Database,
         optimization_type: str,
         objective_type: str,
         **kwargs,
-    ) -> Tuple[plt.Figure, plt.Axes]:
-    """Create an illustration of the regret MR layout quality plot."""
+    ) -> pd.DataFrame:
+    """Return a DataFrame for the temperature plot."""
     # Injection method comparison
     df_bo = get_regret_data(
         db=db,
@@ -589,6 +635,44 @@ def regret_by_technique_and_temperature_df(
             ('BiasedMoreCertain', 'None', r'PriorSampling, Biased, $T = 0.01$'),
             ('BiasedUncertain', 'None', r'PriorSampling, Biased, $T = 10.0$'),
             ('BiasedMoreUncertain', 'None', r'PriorSampling, Biased, $T = 100.0$'),
+        ],
+        **kwargs
+    )
+    df = pd.concat([df_bo, df_prior_sampling])
+
+    return df
+
+def regret_by_technique_and_bias_level_df(
+        db: Database,
+        optimization_type: str,
+        objective_type: str,
+        **kwargs,
+    ) -> pd.DataFrame:
+    """Return a DataFrame for the bias level plot."""
+    # Injection method comparison
+    df_bo = get_regret_data(
+        db=db,
+        optimization_type=optimization_type,
+        objective_type=objective_type,
+        prior_types_injection_method_and_descriptions=[
+            ('None', 'None', 'MC-LogEI'),
+            ('Biased', 'ColaBO', 'ColaBO, Biased'),
+            ('MoreBiased', 'ColaBO', 'ColaBO, MoreBiased'),
+            ('EvenMoreBiased', 'ColaBO', 'ColaBO, EvenMoreBiased'),
+            ('Biased', 'piBO', 'piBO, Biased'),
+            ('MoreBiased', 'piBO', 'piBO, MoreBiased'),
+            ('EvenMoreBiased', 'piBO', 'piBO, EvenMoreBiased'),
+        ],
+        **kwargs
+    )
+    df_prior_sampling = get_regret_data(
+        db=db,
+        optimization_type='PriorSampling',
+        objective_type=objective_type,
+        prior_types_injection_method_and_descriptions=[
+            ('Biased', 'None', 'PriorSampling, Biased'),
+            ('MoreBiased', 'None', 'PriorSampling, MoreBiased'),
+            ('EvenMoreBiased', 'None', 'PriorSampling, EvenMoreBiased'),
         ],
         **kwargs
     )
